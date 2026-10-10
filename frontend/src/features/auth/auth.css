@@ -1,0 +1,49 @@
+/* Auth desktop references; approved F1 omissions: phone and Google. */
+.auth-shell { box-sizing: border-box; width: 100%; max-width: none; min-height: 100dvh; margin: 0; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 38px; background: #f8f8fc; color: #101621; }
+.auth-brand { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 27px; line-height: 1.2; font-weight: 800; color: #00a63e; }
+.auth-brand b { color: #101621; }
+.brand-icon { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 15px; background: #00ad42; font-size: 30px; }
+.auth-card { box-sizing: border-box; width: 100%; min-width: 0; max-width: 560px; padding: 40px; border: 1px solid #ededee; border-radius: 22px; background: #fff; box-shadow: 0 2px 2px #00000020; }
+.auth-card header { text-align: center; margin-bottom: 32px; }
+.auth-card h1 { margin: 0; overflow-wrap: anywhere; font-size: 30px; line-height: 1.3; font-weight: 800; letter-spacing: -.6px; }
+.auth-card header p { color: #828487; margin: 10px 0 0; font-size: 17px; line-height: 1.5; }
+.auth-field { margin-bottom: 22px; }
+.auth-field label { display: block; margin-bottom: 8px; font-size: 17px; color: #353d45; font-weight: 500; }
+.input-wrap { position: relative; }
+.auth-field input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 52px; padding: 12px 15px; border: 1px solid #e6e6e8; border-radius: 15px; box-shadow: 0 1px 3px #00000005; background: white; color: #252c35; font: inherit; font-size: 17px; }
+.auth-field input[type=password], .input-wrap:has(.visibility) input { padding-right: 50px; }
+.auth-field input::placeholder { color: #999b9e; opacity: 1; }
+.auth-field input[aria-invalid=true] { border-color: #b83d3d; }
+.auth-card :focus-visible { outline: 3px solid #80dca4; outline-offset: 3px; }
+.auth-card button { font: inherit; cursor: pointer; }
+.auth-card .visibility { position: absolute; right: 4px; top: 4px; bottom: 4px; width: 44px; padding: 10px; border: 0; border-radius: 10px; color: #9ca3ab; background: transparent; }
+.visibility svg { display: block; width: 22px; height: 22px; }
+.auth-card .primary { box-sizing: border-box; display: flex; justify-content: center; align-items: center; text-align: center; width: 100%; min-height: 58px; padding: 14px 18px; color: white; background: #00ad42; border: 0; border-radius: 15px; text-decoration: none; font-size: 18px; font-weight: 600; line-height: 1.5; }
+.auth-card .primary:hover { background: #009d3b; }
+.auth-card button:disabled { opacity: .65; cursor: wait; }
+.auth-card a { color: #00a344; text-decoration: none; }
+.auth-card a:hover { text-decoration: underline; }
+.auth-card a.primary { color: white; }
+.forgot-link { text-align: right; margin: -2px 0 22px; font-size: 15px; }
+.auth-footer { margin: 30px 0 0; text-align: center; color: #85868a; font-size: 16px; }
+.back-link { display: block; text-align: center; margin-top: 30px; font-size: 17px; font-weight: 500; }
+.password-hint { font-size: 14px; color: #83878b; margin: -4px 0 20px; line-height: 1.6; }
+.field-error { font-size: 14px; color: #a52c2c; margin: 7px 0 0; }
+.notice { font-size: 15px; line-height: 1.5; padding: 12px; border-radius: 10px; background: #fff2f2; color: #9f2727; overflow-wrap: anywhere; }
+.notice.positive { background: #effcf4; color: #187c40; }
+.center { text-align: center; }
+.state-icon { display: grid; place-items: center; margin: 0 auto 30px; width: 68px; height: 68px; font-size: 40px; }
+.state-icon.success { border-radius: 50%; color: #00ac42; background: #f0fdf4; }
+.state-icon.mail { color: #649abd; }
+.sent-state .auth-card, .success-state .auth-card { padding-top: 40px; padding-bottom: 40px; }
+@media (max-width: 600px) {
+  .auth-shell { padding: 24px 16px; gap: 28px; }
+  .auth-card { padding: 28px 22px; border-radius: 18px; }
+  .auth-brand { font-size: 24px; }
+  .auth-card h1 { font-size: 26px; }
+  .auth-card header p { font-size: 16px; }
+  .auth-field input { font-size: 16px; }
+}
+@media (max-height: 650px) {
+  .auth-shell { justify-content: flex-start; }
+}

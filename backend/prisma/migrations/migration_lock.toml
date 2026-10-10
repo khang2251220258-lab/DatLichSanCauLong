@@ -1,0 +1,2 @@
+# Migration provider metadata only; this does not mark any migration as applied.
+provider = "postgresql"

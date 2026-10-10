@@ -1,0 +1,43 @@
+{
+  "name": "booking-backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed:demo": "node scripts/seed-demo.js",
+    "test:payment:db": "node --test test/payment.integration.js",
+    "test:owner-payment:db": "node --test test/payment.integration.js",
+    "bootstrap:admin": "node scripts/bootstrap-admin.js",
+    "test:owner:db": "node --test test/owner-request.integration.js",
+    "test:password:db": "node --test test/password.integration.js",
+    "test": "node --test test/*.test.js",
+    "test:auth:db": "node --test test/auth.integration.js",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "prisma:format": "prisma format",
+    "prisma:validate": "prisma validate",
+    "prisma:generate": "prisma generate",
+    "db:check": "node scripts/check-database.js",
+    "test:facility:db": "node --test test/facility.integration.js",
+    "test:court:db": "node --test test/court.integration.js",
+    "test:booking-config:db": "node --test test/booking-configuration.integration.js",
+    "test:presentation:db": "node --test test/presentation.integration.js"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "argon2": "0.45.1",
+    "cloudinary": "2.11.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.1",
+    "express": "^5.2.1",
+    "file-type": "22.1.1",
+    "multer": "2.4.0",
+    "pg": "8.23.0",
+    "resend": "6.28.1",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "prisma": "7.10.0"
+  }
+}
