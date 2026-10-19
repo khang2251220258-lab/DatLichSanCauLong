@@ -1,4 +1,5 @@
 import { AuthError } from '../auth/errors.js';
+import { BOOKING_FLOW_V1, BOOKING_FLOW_V2 } from './config.js';
 
 export const options = { isolationLevel: 'ReadCommitted', maxWait: 20000, timeout: 20000 };
 export const clock = async tx => (await tx.$queryRaw`SELECT clock_timestamp() AS now`)[0].now;
@@ -19,9 +20,19 @@ export async function lockCourt(tx, actor, initial) {
   if (!court || court.facility_id !== initial.facility_id || court.facility.owner_id !== initial.facility.owner_id) throw missing();
   return court;
 }
+export function isExpiredHold(booking, now) {
+  const version = booking.booking_flow_version ?? BOOKING_FLOW_V1;
+  return version === BOOKING_FLOW_V1
+    ? booking.status === 'PENDING_PAYMENT' && booking.expires_at <= now
+    : version === BOOKING_FLOW_V2 && booking.status === 'PENDING_CONFIRMATION'
+      && booking.confirmation_expires_at !== null && booking.confirmation_expires_at <= now;
+}
 export async function expire(tx, bookings, now) {
-  const ids = bookings.filter(b => b.status === 'PENDING_PAYMENT' && b.expires_at <= now).map(b => b.id);
+  const ids = bookings.filter(booking => isExpiredHold(booking, now)).map(booking => booking.id);
   if (!ids.length) return;
-  await tx.booking.updateMany({ where: { id: { in: ids }, status: 'PENDING_PAYMENT', expires_at: { lte: now } }, data: { status: 'EXPIRED', expired_at: now } });
+  await tx.booking.updateMany({ where: { id: { in: ids }, OR: [
+    { booking_flow_version: BOOKING_FLOW_V1, status: 'PENDING_PAYMENT', expires_at: { lte: now } },
+    { booking_flow_version: BOOKING_FLOW_V2, status: 'PENDING_CONFIRMATION', confirmation_expires_at: { lte: now } },
+  ] }, data: { status: 'EXPIRED', expired_at: now } });
   await tx.courtSlotLock.deleteMany({ where: { bookingSlot: { booking_id: { in: ids } } } });
 }

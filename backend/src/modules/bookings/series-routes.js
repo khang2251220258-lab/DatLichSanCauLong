@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import { AuthError, invalid } from '../auth/errors.js';
+import { authenticate, requireOrigin, requireCsrf } from '../auth/middleware.js';
+import { requestId } from './rules.js';
+import { recurringBookingInput, seriesListQuery, seriesRejectInput } from './series-validation.js';
+import { cancellationInput } from './rules.js';
+import { emptyBody } from '../payments/owner-validation.js';
+
+const customerGuard=(auth)=>[authenticate(auth),(req,_res,next)=>{if(!req.auth.user.capabilities.includes('CUSTOMER'))throw new AuthError(403,'FORBIDDEN','Bạn không có quyền thực hiện thao tác này.');next()}];
+const ownerGuard=(auth)=>[authenticate(auth),(req,_res,next)=>{if(!req.auth.user.capabilities.includes('OWNER'))throw new AuthError(403,'FORBIDDEN','Bạn không có quyền thực hiện thao tác này.');next()}];
+export function recurringCreateRoutes(service,auth,config){const router=Router();router.use(...customerGuard(auth));router.post('/',requireOrigin(config.frontendUrl),requireCsrf,async(req,res)=>{if(Object.keys(req.query).length)throw invalid();res.status(201).json(await service.create(req.auth,recurringBookingInput(req.body)))});return router}
+export function customerSeriesRoutes(service,auth,config){const router=Router();router.use(...customerGuard(auth));router.get('/',async(req,res)=>res.json(await service.customerList(req.auth,seriesListQuery(req.query))));router.post('/:series_id/occurrences/:booking_id/cancel',requireOrigin(config.frontendUrl),requireCsrf,async(req,res)=>{if(Object.keys(req.query).length)throw invalid();res.json(await service.cancelOccurrence(req.auth,requestId(req.params.series_id),requestId(req.params.booking_id),cancellationInput(req.body)))});router.get('/:id',async(req,res)=>{if(Object.keys(req.query).length)throw invalid();res.json(await service.customerDetail(req.auth,requestId(req.params.id)))});return router}
+export function ownerSeriesRoutes(service,auth,config){const router=Router();router.use(...ownerGuard(auth));router.get('/',async(req,res)=>res.json(await service.ownerList(req.auth,seriesListQuery(req.query))));router.get('/:id',async(req,res)=>{if(Object.keys(req.query).length)throw invalid();res.json(await service.ownerDetail(req.auth,requestId(req.params.id)))});router.post('/:id/confirm',requireOrigin(config.frontendUrl),requireCsrf,async(req,res)=>{emptyBody(req.body);res.json(await service.confirm(req.auth,requestId(req.params.id)))});router.post('/:id/reject',requireOrigin(config.frontendUrl),requireCsrf,async(req,res)=>res.json(await service.reject(req.auth,requestId(req.params.id),seriesRejectInput(req.body))));return router}

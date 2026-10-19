@@ -10,6 +10,7 @@ const refundInclude = { booking: { include: {
   customer: { select: { id: true, full_name: true, phone: true } },
   paymentProof: { select: { id: true, status: true } },
   court: { select: { id: true, name: true, facility: { select: { id: true, name: true, owner_id: true } } } },
+  bookingSeries: { select: { id: true, status: true, confirmed_at: true, confirmed_by_user_id: true } },
 } } };
 
 async function checkOwner(tx, actor, now) {
@@ -22,8 +23,14 @@ const customerWhere = actor => ({ booking: { customer_id: BigInt(actor.user.id) 
 const summary = row => ({ id: String(row.id), booking_id: String(row.booking_id), amount: row.amount.toString(), status: row.status,
   reason: row.reason, requested_at: row.requested_at, proof_submitted_at: row.proof_submitted_at,
   confirmed_at: row.confirmed_at, refunded_at: row.refunded_at });
-function assertInvariant(row) {
-  const base = row.booking.status === 'CANCELLED' && row.booking.paymentProof?.status === 'APPROVED'
+export function assertRefundInvariant(row) {
+  const legacyEvidence = row.booking.booking_flow_version === 1 && row.booking.paymentProof?.status === 'APPROVED';
+  const recurringEvidence = row.booking.booking_flow_version === 2 && row.booking.booking_series_id !== null
+    && !row.booking.paymentProof && row.booking.confirmed_at && row.booking.confirmed_by_user_id
+    && row.booking.bookingSeries?.status === 'CONFIRMED' && row.booking.bookingSeries.confirmed_at
+    && row.booking.bookingSeries.confirmed_by_user_id === row.booking.confirmed_by_user_id
+    && +row.booking.bookingSeries.confirmed_at === +row.booking.confirmed_at;
+  const base = row.booking.status === 'CANCELLED' && (legacyEvidence || recurringEvidence)
     && row.amount.toString() === row.booking.deposit_amount.toString();
   const noProof = !row.proof_image_path && !row.proof_mime_type && row.proof_size_bytes == null && !row.proof_submitted_at;
   const hasProof = Boolean(row.proof_image_path && row.proof_mime_type && row.proof_size_bytes != null && row.proof_submitted_at);
@@ -57,7 +64,7 @@ export function createRefundService(db, storage, logger = console) {
     if (owner) await checkOwner(tx, actor, now); else await actorCheck(tx, actor, now);
     const row = await tx.refund.findFirst({ where: { id: initialRow.id, ...(owner ? ownerWhere(actor) : customerWhere(actor)) }, include: refundInclude });
     if (!row || row.booking_id !== initialRow.booking_id || row.booking.court_id !== initialRow.booking.court_id) throw missing();
-    assertInvariant(row);
+    assertRefundInvariant(row);
     return { row, now };
   }
   async function detail(actor, refundId, owner) {
@@ -67,7 +74,7 @@ export function createRefundService(db, storage, logger = console) {
       if (owner) await checkOwner(tx, actor, now); else await actorCheck(tx, actor, now);
       const row = await tx.refund.findFirst({ where: { id: refundId, ...(owner ? ownerWhere(actor) : customerWhere(actor)) }, include: refundInclude });
       if (!row) throw missing();
-      assertInvariant(row);
+      assertRefundInvariant(row);
       return { row, now };
     }, { ...options, isolationLevel: 'RepeatableRead' });
     const data = summary(result.row);

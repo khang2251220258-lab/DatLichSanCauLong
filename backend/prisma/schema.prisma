@@ -39,6 +39,9 @@ model User {
   reviewedOwnerRequests OwnerRequest[]       @relation("OwnerRequest_reviewer")
   reviewedFacilities    Facility[]           @relation("Facility_reviewer")
   bookings              Booking[]            @relation("Booking_customer")
+  confirmedBookings     Booking[]            @relation("Booking_confirmer")
+  bookingSeries         BookingSeries[]      @relation("BookingSeries_customer")
+  confirmedBookingSeries BookingSeries[]     @relation("BookingSeries_confirmer")
   reviewedPaymentProofs PaymentProof[]       @relation("PaymentProof_reviewer")
   courtBlocks           CourtBlock[]         @relation("CourtBlock_creator")
   favorites             Favorite[]           @relation("Favorite_user")
@@ -165,6 +168,7 @@ model Facility {
   bankAccount        BankAccount?        @relation("BankAccount_facility")
   favorites          Favorite[]          @relation("Favorite_facility")
   notifications      Notification[]      @relation("Notification_facility")
+  bookingSeries      BookingSeries[]      @relation("BookingSeries_facility")
 
   @@index([owner_id, status])
   @@index([status, district])
@@ -204,6 +208,7 @@ model Court {
   bookings  Booking[]       @relation("Booking_court")
   slotLocks CourtSlotLock[] @relation("CourtSlotLock_court")
   blocks    CourtBlock[]    @relation("CourtBlock_court")
+  bookingSeries BookingSeries[] @relation("BookingSeries_court")
 
   @@unique([facility_id, name])
   @@index([facility_id, status])
@@ -296,10 +301,13 @@ model Booking {
 
   customer_id                        BigInt    @db.BigInt
   court_id                           BigInt    @db.BigInt
+  booking_series_id                  BigInt?   @db.BigInt
   status                             String    @db.VarChar(32)
+  booking_flow_version               Int       @default(1) @db.SmallInt
   start_at                           DateTime  @db.Timestamptz(3)
   end_at                             DateTime  @db.Timestamptz(3)
   expires_at                         DateTime  @db.Timestamptz(3)
+  confirmation_expires_at            DateTime? @db.Timestamptz(3)
   total_amount                       Decimal   @db.Decimal(12, 0)
   deposit_amount                     Decimal   @db.Decimal(12, 0)
   remaining_amount                   Decimal   @db.Decimal(12, 0)
@@ -312,6 +320,7 @@ model Booking {
   facility_address_snapshot          String    @db.VarChar(500)
   court_name_snapshot                String    @db.VarChar(100)
   confirmed_at                       DateTime? @db.Timestamptz(3)
+  confirmed_by_user_id               BigInt?   @db.BigInt
   completed_at                       DateTime? @db.Timestamptz(3)
   cancelled_at                       DateTime? @db.Timestamptz(3)
   rejected_at                        DateTime? @db.Timestamptz(3)
@@ -324,7 +333,9 @@ model Booking {
   updated_at DateTime @updatedAt @db.Timestamptz(3)
 
   customer      User           @relation("Booking_customer", fields: [customer_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  confirmer     User?          @relation("Booking_confirmer", fields: [confirmed_by_user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
   court         Court          @relation("Booking_court", fields: [court_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bookingSeries BookingSeries? @relation("BookingSeries_bookings", fields: [booking_series_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
   slots         BookingSlot[]  @relation("BookingSlot_booking")
   paymentProof  PaymentProof?  @relation("PaymentProof_booking")
   refund        Refund?        @relation("Refund_booking")
@@ -335,7 +346,55 @@ model Booking {
   @@index([court_id, start_at, end_at])
   @@index([status, expires_at])
   @@index([status, start_at])
+  @@unique([booking_series_id, start_at])
   @@map("bookings")
+}
+
+/// Nền tảng additive cho lịch cố định. Phase 2 chỉ tạo schema và read-only search; chưa tạo series runtime.
+model BookingSeries {
+  id BigInt @id @default(autoincrement()) @db.BigInt
+
+  customer_id             BigInt   @db.BigInt
+  facility_id             BigInt   @db.BigInt
+  court_id                BigInt   @db.BigInt
+  weekday                 Int      @db.SmallInt
+  start_time              DateTime @db.Time(6)
+  end_time                DateTime @db.Time(6)
+  starts_on               DateTime @db.Date
+  ends_on                 DateTime @db.Date
+  occurrence_count        Int      @db.SmallInt
+  status                  String   @db.VarChar(32)
+  confirmation_expires_at DateTime @db.Timestamptz(3)
+
+  total_amount     Decimal @db.Decimal(12, 0)
+  deposit_amount   Decimal @db.Decimal(12, 0)
+  remaining_amount Decimal @db.Decimal(12, 0)
+
+  bank_name_snapshot         String  @db.VarChar(150)
+  account_number_snapshot    String  @db.VarChar(50)
+  account_holder_snapshot    String  @db.VarChar(150)
+  qr_image_path_snapshot     String? @db.VarChar(1024)
+  facility_name_snapshot     String  @db.VarChar(200)
+  facility_address_snapshot  String  @db.VarChar(500)
+  court_name_snapshot        String  @db.VarChar(100)
+
+  confirmed_at         DateTime? @db.Timestamptz(3)
+  confirmed_by_user_id BigInt?   @db.BigInt
+  rejected_at          DateTime? @db.Timestamptz(3)
+  rejection_reason     String?   @db.Text
+  created_at           DateTime  @db.Timestamptz(3)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(3)
+
+  customer User      @relation("BookingSeries_customer", fields: [customer_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  confirmer User?    @relation("BookingSeries_confirmer", fields: [confirmed_by_user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  facility  Facility  @relation("BookingSeries_facility", fields: [facility_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  court     Court     @relation("BookingSeries_court", fields: [court_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bookings  Booking[] @relation("BookingSeries_bookings")
+
+  @@index([customer_id, created_at])
+  @@index([facility_id, status, created_at])
+  @@index([court_id, starts_on, ends_on])
+  @@map("booking_series")
 }
 
 /// Lịch sử slot 30 phút, không UNIQUE Court/thời điểm ở bảng lịch sử.

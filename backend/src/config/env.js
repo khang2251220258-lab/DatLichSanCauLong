@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { bookingFlowVersion } from '../modules/bookings/config.js';
 
 if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) throw new Error('FRONTEND_URL_REQUIRED');
 
@@ -12,4 +13,5 @@ export const env = {
   port,
   nodeEnv: process.env.NODE_ENV || 'development',
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  bookingFlowVersion: bookingFlowVersion(process.env.BOOKING_FLOW_VERSION, { required: process.env.NODE_ENV === 'production' }),
 };

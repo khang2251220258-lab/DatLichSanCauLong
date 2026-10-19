@@ -30,7 +30,10 @@ export function buildSlots({ facility, rules, blocks, bookings, dayStart, now })
     const state = start <= +now ? 'PAST'
       : blocks.some(b => overlap(b.start_at, b.end_at, start, end)) ? 'BLOCKED'
       : occupied.some(b => b.status === 'CONFIRMED') ? 'BOOKED'
-      : occupied.some(b => b.status === 'PENDING_CONFIRMATION' || (b.status === 'PENDING_PAYMENT' && +now < +b.expires_at)) ? 'HELD'
+      : occupied.some(b => (b.booking_flow_version ?? 1) === 1 && b.status === 'PENDING_CONFIRMATION'
+        || (b.booking_flow_version ?? 1) === 1 && b.status === 'PENDING_PAYMENT' && +now < +b.expires_at
+        || b.booking_flow_version === 2 && b.status === 'PENDING_CONFIRMATION'
+          && b.confirmation_expires_at !== null && +now < +b.confirmation_expires_at) ? 'HELD'
       : slot_amount === null ? 'UNPRICED' : 'AVAILABLE';
     slots.push({ start_at: new Date(start).toISOString(), end_at: new Date(end).toISOString(), state, slot_amount });
   }

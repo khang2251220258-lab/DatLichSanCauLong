@@ -4,15 +4,34 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "seed:demo": "node scripts/seed-demo.js",
+    "seed:demo": "node scripts/demo-seed-cli.js --write",
+    "seed:demo:verify": "node scripts/demo-seed-cli.js --verify",
+    "seed:demo:proofs": "node scripts/seed-demo-proofs.js",
+    "seed:demo:proofs:verify": "node scripts/seed-demo-proofs.js --verify",
+    "seed:demo:proofs:runtime": "node scripts/verify-demo-proof-runtime.js",
+    "audit:booking-lifecycle:e2e": "node scripts/audit-booking-lifecycle-e2e.js",
+    "profile:performance:read-only": "node scripts/profile-performance-phase3.js --read-only",
+    "profile:owner-analytics:read-only": "node scripts/profile-owner-analytics.js --read-only",
+    "e2e:customer:setup": "node scripts/e2e-customer-fixture.js setup",
+    "e2e:customer:cleanup": "node scripts/e2e-customer-fixture.js cleanup",
+    "e2e:customer:verify": "node scripts/e2e-customer-fixture.js verify",
+    "e2e:owner-analytics:setup": "node scripts/e2e-owner-analytics-fixture.js setup",
+    "e2e:owner-analytics:cleanup": "node scripts/e2e-owner-analytics-fixture.js cleanup",
+    "e2e:owner-analytics:verify": "node scripts/e2e-owner-analytics-fixture.js verify",
+    "e2e:release:setup": "node scripts/e2e-release-fixture.js setup",
+    "e2e:release:cleanup": "node scripts/e2e-release-fixture.js cleanup",
+    "e2e:release:verify": "node scripts/e2e-release-fixture.js verify",
     "test:payment:db": "node --test test/payment.integration.js",
     "test:owner-payment:db": "node --test test/payment.integration.js",
+    "test:recurring:db": "node --test test/recurring-search.integration.js",
+    "test:recurring-v3:db": "node --test test/booking-series.integration.js",
     "bootstrap:admin": "node scripts/bootstrap-admin.js",
     "test:owner:db": "node --test test/owner-request.integration.js",
     "test:password:db": "node --test test/password.integration.js",
     "test": "node --test test/*.test.js",
     "test:auth:db": "node --test test/auth.integration.js",
-    "dev": "node --watch src/server.js",
+    "dev": "node src/server.js",
+    "dev:watch": "node --watch src/server.js",
     "start": "node src/server.js",
     "prisma:format": "prisma format",
     "prisma:validate": "prisma validate",
@@ -24,8 +43,8 @@
     "test:presentation:db": "node --test test/presentation.integration.js"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "7.10.0",
-    "@prisma/client": "7.10.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "argon2": "0.45.1",
     "cloudinary": "2.11.0",
     "cors": "^2.8.6",
@@ -38,6 +57,6 @@
     "sharp": "0.35.5"
   },
   "devDependencies": {
-    "prisma": "7.10.0"
+    "prisma": "7.10.1"
   }
 }

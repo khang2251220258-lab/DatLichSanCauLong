@@ -3,17 +3,17 @@ import { buildSlots, invalidDate, timezone } from './slots.js';
 
 const asDate = value => value instanceof Date ? value : new Date(value);
 const booking = value => ({ ...value, id: BigInt(value.id), court_id: BigInt(value.court_id),
-  start_at: asDate(value.start_at), end_at: asDate(value.end_at), expires_at: asDate(value.expires_at) });
+  booking_flow_version: Number(value.booking_flow_version ?? 1),
+  start_at: asDate(value.start_at), end_at: asDate(value.end_at), expires_at: asDate(value.expires_at),
+  confirmation_expires_at: value.confirmation_expires_at == null ? null : asDate(value.confirmation_expires_at) });
 const ruleTime = value => new Date(`1970-01-01T${value}Z`);
 const rule = value => ({ ...value, start_time: ruleTime(value.start_time), end_time: ruleTime(value.end_time) });
 const block = value => ({ start_at: asDate(value.start_at), end_at: asDate(value.end_at) });
 
 export function createAvailabilityService(db) {
   return {
-    read(courtId, date) {
-      return db.$transaction(async tx => {
-        await tx.$executeRaw`SET TRANSACTION READ ONLY`;
-        const [row] = await tx.$queryRaw`
+    async read(courtId, date) {
+        const [row] = await db.$queryRaw`
           WITH moment AS MATERIALIZED (SELECT clock_timestamp() AS now),
           snapshot AS MATERIALIZED (
             SELECT now,
@@ -35,10 +35,14 @@ export function createAvailabilityService(db) {
             COALESCE((SELECT jsonb_agg(jsonb_build_object('start_at', cb.start_at, 'end_at', cb.end_at))
               FROM court_blocks cb WHERE cb.court_id = v.id AND cb.start_at < s.day_end AND cb.end_at > s.day_start), '[]'::jsonb) AS blocks,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('id', b.id::text, 'court_id', b.court_id::text,
-              'start_at', b.start_at, 'end_at', b.end_at, 'status', b.status, 'expires_at', b.expires_at))
+              'start_at', b.start_at, 'end_at', b.end_at, 'status', b.status,
+              'booking_flow_version', b.booking_flow_version, 'expires_at', b.expires_at,
+              'confirmation_expires_at', b.confirmation_expires_at))
               FROM bookings b WHERE b.court_id = v.id AND b.start_at < s.day_end AND b.end_at > s.day_start), '[]'::jsonb) AS bookings,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('id', lb.id::text, 'court_id', lb.court_id::text,
-              'start_at', lb.start_at, 'end_at', lb.end_at, 'status', lb.status, 'expires_at', lb.expires_at))
+              'start_at', lb.start_at, 'end_at', lb.end_at, 'status', lb.status,
+              'booking_flow_version', lb.booking_flow_version, 'expires_at', lb.expires_at,
+              'confirmation_expires_at', lb.confirmation_expires_at))
               FROM court_slot_locks l JOIN booking_slots bs ON bs.id = l.booking_slot_id JOIN bookings lb ON lb.id = bs.booking_id
               WHERE l.court_id = v.id AND l.start_at >= s.day_start AND l.start_at < s.day_end), '[]'::jsonb) AS locked_bookings
           FROM snapshot s LEFT JOIN visible v ON true`;
@@ -55,7 +59,6 @@ export function createAvailabilityService(db) {
           dayStart: row.day_start, now: row.now,
         });
         return { data: { court_id: String(courtId), date, timezone, slot_minutes: 30, slots }, meta: { server_time: row.now.toISOString() } };
-      }, { isolationLevel: 'RepeatableRead', maxWait: 20000, timeout: 20000 });
     },
   };
 }

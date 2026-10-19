@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AuthError, invalid } from '../auth/errors.js';
 import { authenticate, requireOrigin, requireCsrf } from '../auth/middleware.js';
-import { emptyBody, ownerListQuery, rejectInput, requestId } from './owner-validation.js';
+import { cancellationReasonInput, emptyBody, ownerListQuery, rejectInput, requestId } from './owner-validation.js';
 
 export function ownerPaymentRoutes(service, auth, config) {
   const router = Router();
@@ -15,6 +15,15 @@ export function ownerPaymentRoutes(service, auth, config) {
 
   router.get('/bookings', ...guard, async (req, res) => res.json(await service.list(req.auth, ownerListQuery(req.query))));
   router.get('/bookings/:booking_id', ...guard, noQuery, async (req, res) => res.json(await service.bookingDetail(req.auth, requestId(req.params.booking_id))));
+  router.post('/bookings/:booking_id/cancel', ...mutation, async (req, res) => {
+    res.json(await service.cancelBooking(req.auth, requestId(req.params.booking_id), cancellationReasonInput(req.body)));
+  });
+  router.post('/bookings/:booking_id/confirm', ...mutation, async (req, res) => {
+    emptyBody(req.body); res.json(await service.confirmV2Booking(req.auth, requestId(req.params.booking_id)));
+  });
+  router.post('/bookings/:booking_id/reject', ...mutation, async (req, res) => {
+    res.json(await service.rejectV2Booking(req.auth, requestId(req.params.booking_id), rejectInput(req.body)));
+  });
   router.get('/payments/:proof_id', ...guard, noQuery, async (req, res) => res.json(await service.proofDetail(req.auth, requestId(req.params.proof_id))));
   router.post('/payments/:proof_id/confirm', ...mutation, async (req, res) => {
     emptyBody(req.body); res.json(await service.confirm(req.auth, requestId(req.params.proof_id)));

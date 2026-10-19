@@ -1,4 +1,4 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import argon2 from 'argon2';
 import { prisma } from '../src/config/prisma.js';
@@ -6,130 +6,30 @@ import { passwordOptions } from '../src/modules/auth/password.js';
 import { validatePassword } from '../src/modules/auth/validation.js';
 import { supportedDistricts } from '../src/modules/facilities/districts.js';
 
-const CONFIRMATION = 'BOOKING_DEVELOPMENT_ONLY';
-const EMAILS = Object.freeze({
-  admin: 'demo.admin@booking.invalid',
-  owner: 'demo.owner@booking.invalid',
-  customer: 'demo.customer@booking.invalid',
-});
-const FACILITIES = Object.freeze([
-  { name: 'Demo Cầu Lông Sông Hàn', district: 'Phường Hải Châu', address: '100 Đường Demo, Phường Hải Châu, Đà Nẵng', phone: '0000000001', rate: '80000', courts: 3 },
-  { name: 'Demo Cầu Lông Hòa Xuân', district: 'Phường Hòa Xuân', address: '200 Đường Demo, Phường Hòa Xuân, Đà Nẵng', phone: '0000000002', rate: '90000', courts: 1 },
-  { name: 'Demo Cầu Lông Hội An', district: 'Phường Hội An', address: '300 Đường Demo, Phường Hội An, Đà Nẵng', phone: '0000000003', rate: '100000', courts: 1 },
-]);
-const AMENITIES = Object.freeze(['Demo - Bãi đỗ xe', 'Demo - Phòng thay đồ', 'Demo - Nước uống']);
-const time = value => new Date(`1970-01-01T${value}:00.000Z`);
+const CONFIRMATION='BOOKING_DEVELOPMENT_ONLY', PREFIX='demo.state.customer';
+const EMAILS={admin:'demo.admin@booking.invalid',owner:'demo.owner@booking.invalid',customer:'demo.customer@booking.invalid'};
+const CUSTOMERS=Array.from({length:10},(_,i)=>({email:`${PREFIX}${String(i+1).padStart(2,'0')}@booking.invalid`,name:['An','Binh Nguyen','Chi Le Thi Minh Chau','Dung','Giang Tran','Hieu','Khanh Nguyen Hoang Long','Linh','Minh','Phuong'][i],phone:i%3===0?null:`090000${String(i+1).padStart(4,'0')}`}));
+const BLUEPRINTS=[
+ ['Demo - Cau long Song Han',3,'ACTIVE','80000','06:00','22:00'],['Demo - Trung tam the thao Hoa Xuan',1,'ACTIVE','100000','06:00','21:30'],
+ ['Demo - Cau long Pho Co Hoi An',2,'ACTIVE','120000','05:30','22:00'],['Demo - San cau long Bien Xanh voi ten dai de kiem tra bo cuc quan ly',4,'ACTIVE','160000','06:30','23:00'],
+ ['Demo - Cau long Ngu Hanh Son',5,'ACTIVE','80000','05:00','22:30'],['Demo - Cau long Hoa Vang',2,'ACTIVE','100000','07:00','21:00'],
+ ['Demo - Co so dang soan thao',1,'DRAFT','80000','06:00','22:00'],['Demo - Co so cho duyet',2,'PENDING','90000','06:00','22:00'],
+ ['Demo - Co so bi tu choi',3,'REJECTED','100000','06:00','22:00'],['Demo - Co so tam ngung',4,'SUSPENDED','120000','06:00','22:00']];
+const STATE_COUNTS={PENDING_PAYMENT:4,PENDING_CONFIRMATION:5,CONFIRMED:6,COMPLETED:3,REJECTED:4,EXPIRED:3,CANCELLED:7};
+const t=v=>new Date(`1970-01-01T${v}:00.000Z`);
 
-function targetFingerprint() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_MISSING');
-  const url = new URL(process.env.DATABASE_URL);
-  const safeTarget = `${url.protocol}//${url.hostname}:${url.port || 'default'}${url.pathname}`;
-  return createHash('sha256').update(safeTarget).digest('hex').slice(0, 16);
-}
-function assertStaticData() {
-  for (const facility of FACILITIES) if (!supportedDistricts.includes(facility.district)) throw new Error('DEMO_DISTRICT_INVALID');
-}
-async function databaseSnapshot() {
-  const [database] = await prisma.$queryRaw`SELECT current_database() AS name, current_schema() AS schema`;
-  const migration = await prisma.$queryRaw`SELECT migration_name, finished_at FROM _prisma_migrations WHERE migration_name = '20260922000000_init' AND finished_at IS NOT NULL`;
-  if (!migration.length) throw new Error('INITIAL_MIGRATION_NOT_APPLIED');
-  const [users, owners, facilities, courts, bookings, proofs] = await Promise.all([
-    prisma.user.count(), prisma.ownerProfile.count(), prisma.facility.count(), prisma.court.count(), prisma.booking.count(), prisma.paymentProof.count(),
-  ]);
-  return { database: database.name, schema: database.schema, migration: migration[0].migration_name,
-    counts: { users, owner_profiles: owners, facilities, courts, bookings, payment_proofs: proofs } };
-}
-function assertWriteGuard(fingerprint) {
-  if (process.env.NODE_ENV !== 'development') throw new Error('NODE_ENV_MUST_BE_DEVELOPMENT');
-  if (process.env.DEMO_SEED_CONFIRM !== CONFIRMATION) throw new Error('DEMO_SEED_CONFIRM_REQUIRED');
-  if (process.env.DEMO_SEED_TARGET_FINGERPRINT !== fingerprint) throw new Error('DEMO_SEED_TARGET_FINGERPRINT_MISMATCH');
-  validatePassword(process.env.DEMO_OWNER_PASSWORD);
-  validatePassword(process.env.DEMO_CUSTOMER_PASSWORD);
-  validatePassword(process.env.DEMO_ADMIN_PASSWORD);
-}
-async function upsertDemoUser(tx, input, now) {
-  const existing = await tx.user.findUnique({ where: { email_normalized: input.email } });
-  if (existing && existing.role !== input.role) throw new Error('DEMO_USER_ROLE_CONFLICT');
-  return tx.user.upsert({
-    where: { email_normalized: input.email },
-    create: { email: input.email, email_normalized: input.email, password_hash: input.passwordHash,
-      full_name: input.name, role: input.role, status: 'ACTIVE', created_at: now },
-    update: { email: input.email, password_hash: input.passwordHash, full_name: input.name, status: 'ACTIVE', locked_at: null, locked_reason: null },
-  });
-}
-async function ensureOwnerProfile(tx, owner, admin, now) {
-  const profile = await tx.ownerProfile.findUnique({ where: { user_id: owner.id } });
-  if (profile) return profile;
-  let request = await tx.ownerRequest.findFirst({ where: { user_id: owner.id, status: 'APPROVED' }, orderBy: { id: 'asc' } });
-  request ??= await tx.ownerRequest.create({ data: { user_id: owner.id, status: 'APPROVED',
-    applicant_name_snapshot: owner.full_name, applicant_email_snapshot: owner.email,
-    reviewed_by: admin.id, reviewed_at: now, created_at: now } });
-  return tx.ownerProfile.create({ data: { user_id: owner.id, approved_request_id: request.id, created_at: now } });
-}
-async function ensureFacility(tx, ownerId, adminId, spec, now) {
-  const data = { owner_id: ownerId, name: spec.name, address: spec.address, district: spec.district,
-    phone: spec.phone, description: 'Dữ liệu demo dành riêng cho môi trường development.',
-    opening_time: time('06:00'), closing_time: time('22:00'), status: 'ACTIVE',
-    submitted_at: now, reviewed_by: adminId, reviewed_at: now,
-    rejection_reason: null, suspended_at: null, suspension_reason: null };
-  const existing = await tx.facility.findFirst({ where: { owner_id: ownerId, name: spec.name }, orderBy: { id: 'asc' } });
-  const facility = existing
-    ? await tx.facility.update({ where: { id: existing.id }, data })
-    : await tx.facility.create({ data: { ...data, created_at: now } });
-  for (let index = 1; index <= spec.courts; index += 1) {
-    await tx.court.upsert({ where: { facility_id_name: { facility_id: facility.id, name: `Sân ${index}` } },
-      create: { facility_id: facility.id, name: `Sân ${index}`, description: 'Sân demo đang hoạt động.', status: 'ACTIVE', created_at: now },
-      update: { description: 'Sân demo đang hoạt động.', status: 'ACTIVE' } });
-  }
-  await tx.priceRule.deleteMany({ where: { facility_id: facility.id } });
-  await tx.priceRule.create({ data: { facility_id: facility.id, start_time: time('06:00'), end_time: time('22:00'), hourly_rate: spec.rate, created_at: now } });
-  await tx.cancellationPolicy.upsert({ where: { facility_id: facility.id },
-    create: { facility_id: facility.id, cutoff_hours: 2, created_at: now }, update: { cutoff_hours: 2 } });
-  await tx.bankAccount.upsert({ where: { facility_id: facility.id }, create: { facility_id: facility.id,
-    bank_name: 'Ngân hàng Demo - Không chuyển tiền thật', account_number: `DEMO${facility.id}`,
-    account_holder: 'TAI KHOAN DEMO KHONG CHUYEN TIEN', qr_image_path: null, created_at: now },
-    update: { bank_name: 'Ngân hàng Demo - Không chuyển tiền thật', account_number: `DEMO${facility.id}`,
-      account_holder: 'TAI KHOAN DEMO KHONG CHUYEN TIEN', qr_image_path: null } });
-  return facility;
-}
-async function seed() {
-  assertStaticData();
-  const fingerprint = targetFingerprint();
-  const before = await databaseSnapshot();
-  if (process.argv.includes('--check')) {
-    console.log(JSON.stringify({ mode: 'CHECK_ONLY', target_fingerprint: fingerprint, ...before }));
-    return;
-  }
-  assertWriteGuard(fingerprint);
-  const [ownerHash, customerHash, adminHash] = await Promise.all([
-    argon2.hash(process.env.DEMO_OWNER_PASSWORD, passwordOptions),
-    argon2.hash(process.env.DEMO_CUSTOMER_PASSWORD, passwordOptions),
-    argon2.hash(process.env.DEMO_ADMIN_PASSWORD, passwordOptions),
-  ]);
-  const result = await prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(20261006)`;
-    const [{ now }] = await tx.$queryRaw`SELECT clock_timestamp() AS now`;
-    const admin = await upsertDemoUser(tx, { email: EMAILS.admin, name: 'Demo Admin Reviewer', role: 'ADMIN', passwordHash: adminHash }, now);
-    const owner = await upsertDemoUser(tx, { email: EMAILS.owner, name: 'Demo Owner', role: 'CUSTOMER', passwordHash: ownerHash }, now);
-    const customer = await upsertDemoUser(tx, { email: EMAILS.customer, name: 'Demo Customer', role: 'CUSTOMER', passwordHash: customerHash }, now);
-    await ensureOwnerProfile(tx, owner, admin, now);
-    const amenityRows = [];
-    for (const name of AMENITIES) amenityRows.push(await tx.amenity.upsert({ where: { name }, create: { name, is_active: true, created_at: now }, update: { is_active: true } }));
-    const facilities = [];
-    for (const spec of FACILITIES) {
-      const facility = await ensureFacility(tx, owner.id, admin.id, spec, now);
-      facilities.push(facility);
-      for (const amenity of amenityRows) await tx.facilityAmenity.upsert({
-        where: { facility_id_amenity_id: { facility_id: facility.id, amenity_id: amenity.id } },
-        create: { facility_id: facility.id, amenity_id: amenity.id, created_at: now }, update: {},
-      });
-    }
-    return { owner_id: String(owner.id), customer_id: String(customer.id), facility_ids: facilities.map(v => String(v.id)) };
-  }, { maxWait: 20000, timeout: 60000 });
-  const after = await databaseSnapshot();
-  console.log(JSON.stringify({ mode: 'SEEDED', target_fingerprint: fingerprint, result, counts: after.counts }));
-}
-
-try { await seed(); }
-catch (error) { console.error(`DEMO SEED FAILED: ${error?.message || 'UNKNOWN_ERROR'}`); process.exitCode = 1; }
-finally { await prisma.$disconnect(); }
+export function targetFingerprint(){if(!process.env.DATABASE_URL)throw Error('DATABASE_URL_MISSING');const u=new URL(process.env.DATABASE_URL);return createHash('sha256').update(`${u.protocol}//${u.hostname}:${u.port||'default'}${u.pathname}`).digest('hex').slice(0,16)}
+export function assertWriteGuard(fp){if(process.env.NODE_ENV!=='development')throw Error('NODE_ENV_MUST_BE_DEVELOPMENT');if(process.env.DEMO_SEED_CONFIRM!==CONFIRMATION)throw Error('DEMO_SEED_CONFIRM_REQUIRED');if(process.env.DEMO_SEED_TARGET_FINGERPRINT!==fp)throw Error('DEMO_SEED_TARGET_FINGERPRINT_MISMATCH');validatePassword(process.env.DEMO_OWNER_PASSWORD);validatePassword(process.env.DEMO_CUSTOMER_PASSWORD);validatePassword(process.env.DEMO_ADMIN_PASSWORD)}
+const stateCount=rows=>Object.fromEntries(rows.map(x=>[x.status,Number(x._count)]));
+async function snapshot(){const[d]=await prisma.$queryRaw`SELECT current_database() name,current_schema() schema`;const m=await prisma.$queryRaw`SELECT migration_name FROM _prisma_migrations WHERE migration_name='20260922000000_init' AND finished_at IS NOT NULL`;if(!m.length)throw Error('INITIAL_MIGRATION_NOT_APPLIED');const [users,facilities,courts,bookings,payment_proofs,refunds]=await Promise.all([prisma.user.count(),prisma.facility.count(),prisma.court.count(),prisma.booking.count(),prisma.paymentProof.count(),prisma.refund.count()]);return{database:d.name,schema:d.schema,migration:m[0].migration_name,counts:{users,facilities,courts,bookings,payment_proofs,refunds}}}
+async function user(tx,x,hash,now){const old=await tx.user.findUnique({where:{email_normalized:x.email}});if(old&&old.role!==x.role)throw Error(`DEMO_USER_ROLE_CONFLICT:${x.email}`);return tx.user.upsert({where:{email_normalized:x.email},create:{email:x.email,email_normalized:x.email,password_hash:hash,full_name:x.name,phone:x.phone??null,role:x.role,status:'ACTIVE',created_at:now},update:{password_hash:hash,full_name:x.name,phone:x.phone??null,status:'ACTIVE',locked_at:null,locked_reason:null}})}
+async function ownerProfile(tx,owner,admin,now){const old=await tx.ownerProfile.findUnique({where:{user_id:owner.id}});if(old)return old;let r=await tx.ownerRequest.findFirst({where:{user_id:owner.id,status:'APPROVED'}});r??=await tx.ownerRequest.create({data:{user_id:owner.id,status:'APPROVED',applicant_name_snapshot:owner.full_name,applicant_email_snapshot:owner.email,reviewed_by:admin.id,reviewed_at:now,created_at:now}});return tx.ownerProfile.create({data:{user_id:owner.id,approved_request_id:r.id,created_at:now}})}
+function fstate(status,admin,now){const reviewed=['ACTIVE','REJECTED','SUSPENDED'].includes(status);return{submitted_at:status==='DRAFT'?null:new Date(+now-86400000),reviewed_by:reviewed?admin:null,reviewed_at:reviewed?new Date(+now-82800000):null,rejection_reason:status==='REJECTED'?'Thong tin co so can duoc bo sung.':null,suspended_at:status==='SUSPENDED'?new Date(+now-3600000):null,suspension_reason:status==='SUSPENDED'?'Tam ngung demo de kiem tra giao dien.':null}}
+async function facility(tx,owner,admin,row,i,amenities,now){const district=supportedDistricts[(i*9)%94],spec={name:row[0],courts:row[1],status:row[2],rate:row[3],opening:row[4],closing:row[5],district,address:i===3?`So 404 duong Demo rat dai, khu dan cu phuc vu kiem tra xuong dong, ${district}, Da Nang`:`${i+1}00 Duong Demo, ${district}, Da Nang`};const data={owner_id:owner,name:spec.name,address:spec.address,district,phone:`0236000${String(i+1).padStart(4,'0')}`,description:'Du lieu demo full-state-v1 cho visual review va manual E2E.',opening_time:t(spec.opening),closing_time:t(spec.closing),status:spec.status,...fstate(spec.status,admin,now)};const old=await tx.facility.findFirst({where:{owner_id:owner,name:spec.name}});const f=old?await tx.facility.update({where:{id:old.id},data}):await tx.facility.create({data:{...data,created_at:now}});for(let n=1;n<=spec.courts;n++)await tx.court.upsert({where:{facility_id_name:{facility_id:f.id,name:`San ${n}`}},create:{facility_id:f.id,name:`San ${n}`,description:`San demo ${n}.`,status:i===4&&n===spec.courts?'INACTIVE':'ACTIVE',created_at:now},update:{description:`San demo ${n}.`,status:i===4&&n===spec.courts?'INACTIVE':'ACTIVE'}});await tx.priceRule.deleteMany({where:{facility_id:f.id}});await tx.priceRule.create({data:{facility_id:f.id,start_time:t(spec.opening),end_time:t(spec.closing),hourly_rate:spec.rate,created_at:now}});await tx.cancellationPolicy.upsert({where:{facility_id:f.id},create:{facility_id:f.id,cutoff_hours:i%3?2:0,created_at:now},update:{cutoff_hours:i%3?2:0}});await tx.bankAccount.upsert({where:{facility_id:f.id},create:{facility_id:f.id,bank_name:'Ngan hang Demo - Khong chuyen tien that',account_number:`DEMO${f.id}`,account_holder:'TAI KHOAN DEMO KHONG CHUYEN TIEN',created_at:now},update:{bank_name:'Ngan hang Demo - Khong chuyen tien that',account_number:`DEMO${f.id}`,account_holder:'TAI KHOAN DEMO KHONG CHUYEN TIEN',qr_image_path:null}});await tx.facilityAmenity.deleteMany({where:{facility_id:f.id}});for(const a of amenities.slice(0,i%4))await tx.facilityAmenity.create({data:{facility_id:f.id,amenity_id:a.id,created_at:now}});return{...f,rate:spec.rate}}
+async function clear(tx,ids){const bs=await tx.booking.findMany({where:{customer_id:{in:ids}},select:{id:true}}),b=bs.map(x=>x.id);if(!b.length)return;const rs=await tx.review.findMany({where:{booking_id:{in:b}},select:{id:true}});if(rs.length)await tx.reviewImage.deleteMany({where:{review_id:{in:rs.map(x=>x.id)}}});await tx.notification.deleteMany({where:{booking_id:{in:b}}});await tx.review.deleteMany({where:{booking_id:{in:b}}});await tx.courtSlotLock.deleteMany({where:{bookingSlot:{booking_id:{in:b}}}});await tx.refund.deleteMany({where:{booking_id:{in:b}}});await tx.paymentProof.deleteMany({where:{booking_id:{in:b}}});await tx.bookingSlot.deleteMany({where:{booking_id:{in:b}}});await tx.booking.deleteMany({where:{id:{in:b}}})}
+function at(now,days,hour,minute){const l=new Date(+now+7*3600000);return new Date(Date.UTC(l.getUTCFullYear(),l.getUTCMonth(),l.getUTCDate()+days,hour-7,minute))}
+function bookingSpecs(){return Object.entries(STATE_COUNTS).flatMap(([status,count])=>Array.from({length:count},()=>status)).map((status,i)=>({key:`${status.toLowerCase()}-${i+1}`,status,slots:i%6+1,customer:i%10,facility:i%6,day:status==='COMPLETED'?-8-i:2+i,hour:8+i%6,cancelledBy:status==='CANCELLED'?(i%3===0?'CUSTOMER':'OWNER'):null}))}
+async function booking(tx,s,customers,facilities,courts,owner,now,refundNo){const f=facilities[s.facility],court=courts.get(String(f.id))[0],rate=BigInt(f.rate),start=at(now,s.day,s.hour,s.slots%2?0:30),end=new Date(+start+s.slots*1800000),total=rate*BigInt(s.slots)/2n,deposit=(total*30n+50n)/100n,created=new Date(Math.min(+now-(s.key.length+1)*60000,+start-600000)),submitted=new Date(+created+60000),reviewed=new Date(+submitted+60000),approved=['CONFIRMED','COMPLETED','CANCELLED'].includes(s.status)&&!(s.status==='CANCELLED'&&refundNo===1);const rejection=s.status==='REJECTED'?(s.key.endsWith('1')?'Anh chuyen khoan khong hop le.':'Anh minh chung khong the hien ro giao dich va noi dung chuyen khoan. Vui long tao booking moi va gui minh chung dung theo huong dan cua co so.'):null,cancel=s.status==='CANCELLED'?(s.cancelledBy==='OWNER'?(refundNo%2?'Co so co lich bao tri dot xuat.':'Co so can tam dung san trong khung gio da dat de xu ly su co ky thuat phat sinh, bao dam an toan truoc khi mo lai cho khach.'):'Khach hang thay doi ke hoach.'):null;const b=await tx.booking.create({data:{customer_id:customers[s.customer].id,court_id:court.id,status:s.status,start_at:start,end_at:end,expires_at:s.status==='PENDING_PAYMENT'?new Date(+now+300000):new Date(+created+300000),total_amount:String(total),deposit_amount:String(deposit),remaining_amount:String(total-deposit),cancellation_cutoff_hours_snapshot:s.facility%3?2:0,bank_name_snapshot:'Ngan hang Demo - Khong chuyen tien that',account_number_snapshot:`DEMO${f.id}`,account_holder_snapshot:'TAI KHOAN DEMO KHONG CHUYEN TIEN',qr_image_path_snapshot:null,facility_name_snapshot:f.name,facility_address_snapshot:f.address,court_name_snapshot:court.name,confirmed_at:approved?reviewed:null,completed_at:s.status==='COMPLETED'?new Date(+end+60000):null,rejected_at:s.status==='REJECTED'?reviewed:null,expired_at:s.status==='EXPIRED'?new Date(+created+300000):null,cancelled_at:s.status==='CANCELLED'?reviewed:null,cancelled_by:s.status==='CANCELLED'?s.cancelledBy:null,rejection_reason:rejection,cancellation_reason:cancel,created_at:created}});const slots=[];for(let i=0;i<s.slots;i++)slots.push(await tx.bookingSlot.create({data:{booking_id:b.id,start_at:new Date(+start+i*1800000),end_at:new Date(+start+(i+1)*1800000),hourly_rate_snapshot:String(rate),slot_amount:String(rate/2n),created_at:created}}));if(['PENDING_PAYMENT','PENDING_CONFIRMATION','CONFIRMED'].includes(s.status))for(const x of slots)await tx.courtSlotLock.create({data:{court_id:court.id,start_at:x.start_at,booking_slot_id:x.id,created_at:created}});let ps=s.status==='PENDING_CONFIRMATION'?'SUBMITTED':approved?'APPROVED':s.status==='REJECTED'?'REJECTED':null;if(ps)await tx.paymentProof.create({data:{booking_id:b.id,image_path:`demo-fixtures/payment-proofs/${s.key}`,mime_type:'image/png',size_bytes:1024n,status:ps,submitted_at:submitted,reviewed_by:ps==='SUBMITTED'?null:owner.id,reviewed_at:ps==='SUBMITTED'?null:reviewed,rejection_reason:ps==='REJECTED'?rejection:null,created_at:submitted}});if(s.status==='CANCELLED'&&refundNo>1){const status=['PENDING','PROOF_SUBMITTED','REFUNDED'][(refundNo-2)%3],proofAt=new Date(+reviewed+60000),finalAt=new Date(+proofAt+60000);await tx.refund.create({data:{booking_id:b.id,amount:String(deposit),status,reason:cancel,proof_image_path:status==='PENDING'?null:`demo-fixtures/refund-proofs/${s.key}`,proof_mime_type:status==='PENDING'?null:'image/png',proof_size_bytes:status==='PENDING'?null:1024n,requested_at:reviewed,proof_submitted_at:status==='PENDING'?null:proofAt,confirmed_at:status==='REFUNDED'?finalAt:null,refunded_at:status==='REFUNDED'?finalAt:null,created_at:reviewed}})}return b}
+async function verify(db){const us=await db.user.findMany({where:{email_normalized:{startsWith:PREFIX}},select:{id:true,phone:true}}),ids=us.map(x=>x.id),bs=await db.booking.findMany({where:{customer_id:{in:ids}},include:{slots:{orderBy:{start_at:'asc'}},paymentProof:true,refund:true},orderBy:{id:'asc'}}),errors=[];for(const b of bs){const total=BigInt(b.total_amount.toString()),deposit=BigInt(b.deposit_amount.toString()),sum=b.slots.reduce((n,x)=>n+BigInt(x.slot_amount.toString().split('.')[0]),0n);if(sum!==total||deposit!==(total*30n+50n)/100n||BigInt(b.remaining_amount.toString())!==total-deposit)errors.push(`money:${b.id}`);if(b.slots.length<1||b.slots.length>6||b.slots.some((x,i)=>i&&+x.start_at!==+b.slots[i-1].end_at))errors.push(`slots:${b.id}`);const locks=await db.courtSlotLock.count({where:{bookingSlot:{booking_id:b.id}}}),want=['PENDING_PAYMENT','PENDING_CONFIRMATION','CONFIRMED'].includes(b.status)?b.slots.length:0;if(locks!==want)errors.push(`locks:${b.id}`);if(b.refund&&(b.status!=='CANCELLED'||b.refund.amount.toString()!==b.deposit_amount.toString()))errors.push(`refund:${b.id}`)}const [states,proofs,refunds,fs]=await Promise.all([db.booking.groupBy({by:['status'],where:{customer_id:{in:ids}},_count:true}),db.paymentProof.groupBy({by:['status'],where:{booking:{customer_id:{in:ids}}},_count:true}),db.refund.groupBy({by:['status'],where:{booking:{customer_id:{in:ids}}},_count:true}),db.facility.findMany({where:{name:{startsWith:'Demo -'}},select:{id:true,name:true,_count:{select:{courts:true,amenities:true}}},orderBy:{id:'asc'}})]);return{errors,customers:us.length,phone_present:us.some(x=>x.phone),phone_null:us.some(x=>!x.phone),bookings:bs.length,booking_states:stateCount(states),payment_proofs:stateCount(proofs),payment_proof_null:bs.filter(x=>!x.paymentProof).length,refunds:stateCount(refunds),refund_null:bs.filter(x=>!x.refund).length,facilities:fs.map(x=>({id:String(x.id),name:x.name,courts:x._count.courts,amenities:x._count.amenities})),owner_matrix:bs.map(x=>({id:String(x.id),status:x.status,proof:x.paymentProof?.status??null,refund:x.refund?.status??null,route:`/owner/bookings/${x.id}`})),customer_matrix:bs.slice(0,14).map(x=>({customer_id:String(x.customer_id),id:String(x.id),status:x.status,route:`/bookings/${x.id}`}))}}
+async function main(){const fp=targetFingerprint(),before=await snapshot();if(process.argv.includes('--check')){console.log(JSON.stringify({mode:'CHECK_ONLY',target_fingerprint:fp,...before}));return}if(process.argv.includes('--verify')){const report=await verify(prisma);console.log(JSON.stringify({mode:'VERIFY_ONLY',target_fingerprint:fp,report}));if(report.errors.length)process.exitCode=1;return}assertWriteGuard(fp);const [oh,ch,ah]=await Promise.all([argon2.hash(process.env.DEMO_OWNER_PASSWORD,passwordOptions),argon2.hash(process.env.DEMO_CUSTOMER_PASSWORD,passwordOptions),argon2.hash(process.env.DEMO_ADMIN_PASSWORD,passwordOptions)]);const report=await prisma.$transaction(async tx=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(20261006)`;const[{now}]=await tx.$queryRaw`SELECT clock_timestamp() now`;const admin=await user(tx,{email:EMAILS.admin,name:'Demo Admin Reviewer',role:'ADMIN'},ah,now),owner=await user(tx,{email:EMAILS.owner,name:'Demo Owner',role:'CUSTOMER'},oh,now);await user(tx,{email:EMAILS.customer,name:'Demo Customer',phone:'0900000000',role:'CUSTOMER'},ch,now);await ownerProfile(tx,owner,admin,now);const customers=[];for(const x of CUSTOMERS)customers.push(await user(tx,{...x,role:'CUSTOMER'},ch,now));await clear(tx,customers.map(x=>x.id));const amenities=await tx.amenity.findMany({where:{is_active:true},orderBy:[{name:'asc'},{id:'asc'}],take:6}),facilities=[];for(const [i,row] of BLUEPRINTS.entries())facilities.push(await facility(tx,owner.id,admin.id,row,i,amenities,now));const courts=new Map;for(const f of facilities)courts.set(String(f.id),await tx.court.findMany({where:{facility_id:f.id,status:'ACTIVE'},orderBy:{id:'asc'}}));let refundNo=0;for(const s of bookingSpecs()){if(s.status==='CANCELLED')refundNo++;await booking(tx,s,customers,facilities,courts,owner,now,refundNo)}const r=await verify(tx);if(r.errors.length)throw Error(`DEMO_INTEGRITY_FAILED:${r.errors.join(',')}`);return r},{maxWait:20000,timeout:300000});console.log(JSON.stringify({mode:'SEEDED',target_fingerprint:fp,report,counts:(await snapshot()).counts}))}
+try{await main()}catch(e){console.error(`DEMO SEED FAILED: ${e?.message||'UNKNOWN_ERROR'}`);process.exitCode=1}finally{await prisma.$disconnect()}

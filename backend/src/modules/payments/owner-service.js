@@ -1,11 +1,13 @@
 import { AuthError } from '../auth/errors.js';
 import { Prisma } from '@prisma/client';
-import { options, clock, missing } from '../bookings/transaction.js';
+import { options, clock, missing, expire } from '../bookings/transaction.js';
+import { transferReference } from '../bookings/transfer-reference.js';
 
 const forbidden = () => new AuthError(403, 'FORBIDDEN', 'Bạn không có quyền thực hiện thao tác này.');
 const expired = () => new AuthError(401, 'SESSION_EXPIRED', 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
 const conflict = code => new AuthError(409, code, code === 'INVALID_PROOF_STATE'
   ? 'Trạng thái minh chứng không cho phép thao tác này.' : 'Trạng thái booking không cho phép thao tác này.');
+const inconsistent = () => new AuthError(409, 'INCONSISTENT_PAYMENT_STATE', 'Trạng thái thanh toán của booking không nhất quán.');
 
 const ownerWhere = actor => ({ court: { facility: { owner_id: BigInt(actor.user.id) } } });
 const bookingInclude = {
@@ -27,12 +29,15 @@ const proofSummary = row => row ? ({ id: id(row.id), status: row.status, submitt
   reviewed_at: row.reviewed_at, rejection_reason: row.rejection_reason }) : null;
 const instant = value => value == null ? null : new Date(value);
 const rawBookingDto = row => ({ ...row, start_at: instant(row.start_at), end_at: instant(row.end_at),
+  transfer_reference: row.booking_flow_version === 2 ? transferReference(row.id) : null,
   created_at: instant(row.created_at), payment_proof: row.payment_proof ? {
     ...row.payment_proof, submitted_at: instant(row.payment_proof.submitted_at), reviewed_at: instant(row.payment_proof.reviewed_at),
   } : null });
 function bookingDto(row, detail = false) {
   const value = {
-    id: id(row.id), status: row.status, start_at: row.start_at, end_at: row.end_at,
+    id: id(row.id), status: row.status, booking_flow_version: row.booking_flow_version,
+    transfer_reference: row.booking_flow_version === 2 ? transferReference(row.id) : null,
+    confirmation_expires_at: row.confirmation_expires_at, start_at: row.start_at, end_at: row.end_at,
     total_amount: money(row.total_amount), deposit_amount: money(row.deposit_amount), created_at: row.created_at,
     customer: customerDto(row.customer),
     facility: { id: id(row.court.facility.id), name: row.facility_name_snapshot },
@@ -41,7 +46,8 @@ function bookingDto(row, detail = false) {
     refund: row.refund ? { ...row.refund, id: id(row.refund.id), booking_id: id(row.refund.booking_id), amount: money(row.refund.amount) } : null,
   };
   if (detail) Object.assign(value, {
-    remaining_amount: money(row.remaining_amount), confirmed_at: row.confirmed_at, rejected_at: row.rejected_at,
+    remaining_amount: money(row.remaining_amount), confirmed_at: row.confirmed_at,
+    confirmed_by_user_id: row.confirmed_by_user_id == null ? null : id(row.confirmed_by_user_id), rejected_at: row.rejected_at,
     rejection_reason: row.rejection_reason, cancelled_at: row.cancelled_at, cancelled_by: row.cancelled_by, cancellation_reason: row.cancellation_reason,
     slots: row.slots.map(slot => ({ start_at: slot.start_at, end_at: slot.end_at,
       hourly_rate_snapshot: money(slot.hourly_rate_snapshot), slot_amount: money(slot.slot_amount) })),
@@ -70,6 +76,11 @@ async function checkOwner(db, actor, now) {
 }
 
 export function createOwnerPaymentService(db, storage) {
+  async function initialBooking(actor, bookingId) {
+    const row = await db.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
+    if (!row) throw missing();
+    return row;
+  }
   async function initialProof(actor, proofId) {
     const row = await db.paymentProof.findFirst({ where: { id: proofId, booking: ownerWhere(actor) }, include: proofInclude });
     if (!row) throw missing();
@@ -100,7 +111,7 @@ export function createOwnerPaymentService(db, storage) {
         rejection_reason: action === 'reject' ? reason : null, updated_at: now,
       } });
       const updatedBooking = await tx.booking.update({ where: { id: proof.booking_id }, data: action === 'confirm'
-        ? { status: 'CONFIRMED', confirmed_at: now, updated_at: now }
+        ? { status: 'CONFIRMED', confirmed_at: now, confirmed_by_user_id: BigInt(actor.user.id), updated_at: now }
         : { status: 'REJECTED', rejected_at: now, rejection_reason: reason, updated_at: now } });
       if (action === 'reject') await tx.courtSlotLock.deleteMany({ where: { bookingSlot: { booking_id: proof.booking_id } } });
       return { data: {
@@ -110,15 +121,47 @@ export function createOwnerPaymentService(db, storage) {
       }, meta: { server_time: now.toISOString() } };
     }, options);
   }
+  async function reviewV2Booking(actor, bookingId, action, reason) {
+    const initial = await initialBooking(actor, bookingId);
+    const result = await db.$transaction(async tx => {
+      const userIds = [...new Set([BigInt(actor.user.id), initial.customer_id])]
+        .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+      for (const userId of userIds) await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM facilities WHERE id = ${initial.court.facility.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM courts WHERE id = ${initial.court_id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+      const now = await clock(tx);
+      await checkOwner(tx, actor, now);
+      const booking = await tx.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
+      if (!booking || booking.court_id !== initial.court_id || booking.court.facility.id !== initial.court.facility.id) throw missing();
+      if (booking.booking_flow_version !== 2) throw conflict('INVALID_BOOKING_FLOW');
+      if (booking.status === 'PENDING_CONFIRMATION' && booking.confirmation_expires_at <= now) {
+        await expire(tx, [booking], now);
+        return { error: 'BOOKING_EXPIRED' };
+      }
+      if (booking.status !== 'PENDING_CONFIRMATION') throw conflict('INVALID_BOOKING_STATE');
+      const updated = await tx.booking.update({ where: { id: booking.id }, data: action === 'confirm'
+        ? { status: 'CONFIRMED', confirmed_at: now, confirmed_by_user_id: BigInt(actor.user.id), updated_at: now }
+        : { status: 'REJECTED', rejected_at: now, rejection_reason: reason, updated_at: now } });
+      if (action === 'reject') await tx.courtSlotLock.deleteMany({ where: { bookingSlot: { booking_id: booking.id } } });
+      return { data: { booking: {
+        id: id(updated.id), status: updated.status, confirmed_at: updated.confirmed_at,
+        confirmed_by_user_id: updated.confirmed_by_user_id == null ? null : id(updated.confirmed_by_user_id),
+        rejected_at: updated.rejected_at, rejection_reason: updated.rejection_reason,
+      } }, meta: { server_time: now.toISOString() } };
+    }, options);
+    if (result.error) throw conflict(result.error);
+    return result;
+  }
   return {
     async list(actor, query) {
       const now = await clock(db); await checkOwner(db, actor, now);
       const status = query.status ? Prisma.sql`AND b.status = ${query.status}` : Prisma.empty;
       const offset = (query.page - 1) * query.page_size;
-      const [result] = await db.$transaction(async tx => {
-        const rows = await tx.$queryRaw`
+      const [result] = await db.$queryRaw`
           WITH owned AS MATERIALIZED (
-            SELECT b.id, b.status, b.start_at, b.end_at, b.total_amount, b.deposit_amount, b.created_at,
+            SELECT b.id, b.status, b.booking_flow_version, b.confirmation_expires_at,
+              b.start_at, b.end_at, b.total_amount, b.deposit_amount, b.created_at,
               b.facility_name_snapshot, b.court_name_snapshot, b.customer_id, b.court_id, c.facility_id
             FROM bookings b JOIN courts c ON c.id = b.court_id JOIN facilities f ON f.id = c.facility_id
             WHERE f.owner_id = ${BigInt(actor.user.id)} ${status}
@@ -127,7 +170,8 @@ export function createOwnerPaymentService(db, storage) {
           )
           SELECT (SELECT count(*)::int FROM owned) AS total,
             COALESCE(jsonb_agg(jsonb_build_object(
-              'id', p.id::text, 'status', p.status, 'start_at', p.start_at, 'end_at', p.end_at,
+              'id', p.id::text, 'status', p.status, 'booking_flow_version', p.booking_flow_version,
+              'confirmation_expires_at', p.confirmation_expires_at, 'start_at', p.start_at, 'end_at', p.end_at,
               'total_amount', p.total_amount::text, 'deposit_amount', p.deposit_amount::text, 'created_at', p.created_at,
               'customer', jsonb_build_object('id', customer.id::text, 'full_name', customer.full_name, 'phone', customer.phone),
               'facility', jsonb_build_object('id', p.facility_id::text, 'name', p.facility_name_snapshot),
@@ -139,15 +183,63 @@ export function createOwnerPaymentService(db, storage) {
           FROM (SELECT 1) seed LEFT JOIN page p ON true
           LEFT JOIN users customer ON customer.id = p.customer_id
           LEFT JOIN payment_proofs proof ON proof.booking_id = p.id`;
-        return rows;
-      }, options);
       return { data: result.items.map(rawBookingDto), meta: { server_time: now.toISOString(), page: query.page, page_size: query.page_size, total: result.total } };
     },
     async bookingDetail(actor, bookingId) {
-      const now = await clock(db); await checkOwner(db, actor, now);
-      const row = await db.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
-      if (!row) throw missing();
-      return { data: bookingDto(row, true), meta: { server_time: now.toISOString() } };
+      const initial = await initialBooking(actor, bookingId);
+      return db.$transaction(async tx => {
+        const userIds = [...new Set([BigInt(actor.user.id), initial.customer_id])]
+          .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+        for (const userId of userIds) await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM facilities WHERE id = ${initial.court.facility.id} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM courts WHERE id = ${initial.court_id} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+        const now = await clock(tx); await checkOwner(tx, actor, now);
+        const row = await tx.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
+        if (!row || row.court_id !== initial.court_id) throw missing();
+        await expire(tx, [row], now);
+        const current = await tx.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
+        return { data: bookingDto(current, true), meta: { server_time: now.toISOString() } };
+      }, options);
+    },
+    async cancelBooking(actor, bookingId, reason) {
+      const initial = await initialBooking(actor, bookingId);
+      try {
+        return await db.$transaction(async tx => {
+          const userIds = [...new Set([BigInt(actor.user.id), initial.customer_id])]
+            .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+          for (const userId of userIds) await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM facilities WHERE id = ${initial.court.facility.id} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM courts WHERE id = ${initial.court_id} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM payment_proofs WHERE booking_id = ${bookingId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM refunds WHERE booking_id = ${bookingId} FOR UPDATE`;
+          const now = await clock(tx);
+          await checkOwner(tx, actor, now);
+          const booking = await tx.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
+          if (!booking || booking.court_id !== initial.court_id || booking.court.facility.id !== initial.court.facility.id) throw missing();
+          if (booking.status !== 'CONFIRMED') throw conflict('INVALID_BOOKING_STATE');
+          if (!booking.paymentProof || booking.paymentProof.status !== 'APPROVED' || booking.refund) throw inconsistent();
+          const cancelled = await tx.booking.update({ where: { id: booking.id }, data: {
+            status: 'CANCELLED', cancelled_by: 'OWNER', cancellation_reason: reason,
+            cancelled_at: now, updated_at: now,
+          } });
+          const refund = await tx.refund.create({ data: {
+            booking_id: booking.id, amount: booking.deposit_amount, status: 'PENDING', reason,
+            requested_at: now, created_at: now, updated_at: now,
+          } });
+          await tx.courtSlotLock.deleteMany({ where: { bookingSlot: { booking_id: booking.id } } });
+          return { data: {
+            booking: { id: id(cancelled.id), status: cancelled.status, cancelled_by: cancelled.cancelled_by,
+              cancellation_reason: cancelled.cancellation_reason, cancelled_at: cancelled.cancelled_at },
+            refund: { id: id(refund.id), booking_id: id(refund.booking_id), amount: money(refund.amount),
+              status: refund.status, requested_at: refund.requested_at },
+          }, meta: { server_time: now.toISOString() } };
+        }, options);
+      } catch (error) {
+        if (error.code === 'P2002' && error.meta?.modelName === 'Refund') throw inconsistent();
+        throw error;
+      }
     },
     async proofDetail(actor, proofId) {
       const now = await clock(db); await checkOwner(db, actor, now);
@@ -159,5 +251,7 @@ export function createOwnerPaymentService(db, storage) {
     },
     confirm: (actor, proofId) => review(actor, proofId, 'confirm'),
     reject: (actor, proofId, reason) => review(actor, proofId, 'reject', reason),
+    confirmV2Booking: (actor, bookingId) => reviewV2Booking(actor, bookingId, 'confirm'),
+    rejectV2Booking: (actor, bookingId, reason) => reviewV2Booking(actor, bookingId, 'reject', reason),
   };
 }

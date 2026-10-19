@@ -32,6 +32,17 @@ test('Availability all occupancy states and exact expiry', () => {
     input.bookings[0].status = 'PENDING_CONFIRMATION'; assert.equal(buildSlots(input)[0].state, 'HELD');
   }
 });
+test('Availability distinguishes V2 confirmation hold from legacy V1 confirmation', () => {
+  const active = base();
+  active.bookings = [{ ...booking('PENDING_CONFIRMATION'), booking_flow_version: 2, confirmation_expires_at: at(1) }];
+  assert.equal(buildSlots(active)[0].state, 'HELD');
+  const boundary = base();
+  boundary.bookings = [{ ...booking('PENDING_CONFIRMATION'), booking_flow_version: 2, confirmation_expires_at: boundary.now }];
+  assert.equal(buildSlots(boundary)[0].state, 'AVAILABLE');
+  const legacy = base();
+  legacy.bookings = [{ ...booking('PENDING_CONFIRMATION', at(-2)), booking_flow_version: 1, confirmation_expires_at: null }];
+  assert.equal(buildSlots(legacy)[0].state, 'HELD');
+});
 test('Availability strict priority and half-open block overlap', () => {
   const input = base(); input.bookings = [booking('CONFIRMED'), booking('PENDING_CONFIRMATION')];
   input.blocks = [{ start_at: at(15), end_at: at(30) }];

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProofStorage } from '../src/modules/payments/storage.js';
-import { ownerListQuery, rejectInput, emptyBody } from '../src/modules/payments/owner-validation.js';
+import { cancellationReasonInput, ownerListQuery, rejectInput, emptyBody } from '../src/modules/payments/owner-validation.js';
 
 const code = value => error => error.code === value;
 
@@ -23,6 +23,15 @@ test('Owner rejection reason trims Unicode and enforces 1..500 code points', () 
   assert.throws(() => rejectInput({ reason: 'x', status: 'REJECTED' }), code('VALIDATION_ERROR'));
   assert.doesNotThrow(() => emptyBody({}));
   assert.throws(() => emptyBody({ status: 'CONFIRMED' }), code('VALIDATION_ERROR'));
+});
+
+test('Owner cancellation reason requires exact body and 1..500 Unicode code points', () => {
+  assert.equal(cancellationReasonInput({ reason: '  Bảo trì đột xuất  ' }), 'Bảo trì đột xuất');
+  assert.equal([...cancellationReasonInput({ reason: '😀'.repeat(500) })].length, 500);
+  for (const body of [{}, { reason: ' ' }, { reason: null }, { reason: [] },
+    { reason: 'x'.repeat(501) }, { reason: 'x', status: 'CANCELLED' }]) {
+    assert.throws(() => cancellationReasonInput(body));
+  }
 });
 
 test('Private proof URL is authenticated, signed by SDK and uses exact expiry', () => {

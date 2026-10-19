@@ -1,6 +1,7 @@
 import test from 'node:test';
 import sharp from 'sharp';
 import { createPaymentService } from '../src/modules/payments/service.js';
+import { createOwnerPaymentService } from '../src/modules/payments/owner-service.js';
 import { proofInput } from '../src/modules/payments/validation.js';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
@@ -10,7 +11,7 @@ import { createBookingService } from '../src/modules/bookings/service.js';
 import { input } from '../src/modules/bookings/rules.js';
 import { createAuthService } from '../src/modules/auth/service.js';
 
-test('Payment PostgreSQL HTTP, expiry/concurrency, rollback and cleanup', {timeout:1200000}, async t => {
+test('Payment PostgreSQL HTTP, expiry/concurrency, rollback and cleanup', {timeout:2400000}, async t => {
   const tag='payment-'+randomUUID(), users=[], sessions=[], facilities=[], courts=[];
   const config={nodeEnv:'development',frontendUrl:'http://localhost:5173'}, time=s=>new Date(`1970-01-01T${s}:00Z`);
   let server, date, clock;
@@ -127,6 +128,60 @@ test('Payment PostgreSQL HTTP, expiry/concurrency, rollback and cleanup', {timeo
       assert.equal(await prisma.bookingSlot.count({where:{booking_id:bid}}),2);
       assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}}),before);
       assert.equal((await req(`/owner/payments/${p.id}/confirm`,0,'POST',{})).status,409);
+    });
+    await cases('Owner confirmed cancellation validates, owns, creates one exact refund and reopens availability',async()=>{
+      const b=await fresh();await proof(b.id);const bid=BigInt(b.id),p=await prisma.paymentProof.findUnique({where:{booking_id:bid}});
+      assert.equal((await req(`/owner/payments/${p.id}/confirm`,0,'POST',{})).status,200);
+      for(const value of [undefined,'   ',null,[], 'x'.repeat(501)]) {
+        const data=value===undefined?{}:{reason:value};assert.equal((await req(`/owner/bookings/${b.id}/cancel`,0,'POST',data)).status,422);
+      }
+      assert.equal((await req(`/owner/bookings/${b.id}/cancel`,0,'POST',{reason:'x',status:'CANCELLED'})).status,422);
+      assert.equal((await req(`/owner/bookings/${b.id}/cancel`,1,'POST',{reason:'Không thuộc quyền'})).status,404);
+      assert.equal((await req(`/owner/bookings/${b.id}/cancel`,0,'POST',{reason:'Bảo trì'},{Origin:'https://evil.invalid'})).status,403);
+      assert.equal((await req(`/owner/bookings/${b.id}/cancel`,0,'POST',{reason:'Bảo trì'},{'X-CSRF-Token':''})).status,403);
+      const beforeSlots=await prisma.bookingSlot.count({where:{booking_id:bid}});
+      const response=await req(`/owner/bookings/${b.id}/cancel`,0,'POST',{reason:'  Bảo trì đột xuất  '});assert.equal(response.status,200);
+      assert.deepEqual(Object.keys(response.body.data).sort(),['booking','refund']);
+      assert.equal(response.body.data.booking.cancelled_by,'OWNER');assert.equal(response.body.data.booking.cancellation_reason,'Bảo trì đột xuất');
+      assert.equal(response.body.data.refund.status,'PENDING');assert.equal(response.body.data.refund.amount,b.deposit_amount);
+      const [booking,proofRow,refund]=await Promise.all([prisma.booking.findUnique({where:{id:bid}}),prisma.paymentProof.findUnique({where:{booking_id:bid}}),prisma.refund.findUnique({where:{booking_id:bid}})]);
+      assert.equal(booking.status,'CANCELLED');assert.equal(booking.cancelled_by,'OWNER');assert.equal(booking.cancellation_reason,'Bảo trì đột xuất');assert.ok(booking.cancelled_at);
+      assert.equal(proofRow.status,'APPROVED');assert.equal(refund.status,'PENDING');assert.equal(refund.amount.toString(),booking.deposit_amount.toString());
+      assert.equal(await prisma.bookingSlot.count({where:{booking_id:bid}}),beforeSlots);assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}}),0);
+      const availabilityDate=new Date(+booking.start_at+7*3600000).toISOString().slice(0,10),availability=await req(`/courts/${booking.court_id}/availability?date=${availabilityDate}`,0);
+      assert.equal(availability.status,200);assert.equal(availability.body.data.slots.find(slot=>slot.start_at===booking.start_at.toISOString()).state,'AVAILABLE');
+      const repeat=await req(`/owner/bookings/${b.id}/cancel`,0,'POST',{reason:'Ghi đè'});assert.equal(repeat.status,409);
+      const unchanged=await prisma.booking.findUnique({where:{id:bid}});assert.equal(unchanged.cancellation_reason,'Bảo trì đột xuất');assert.equal(await prisma.refund.count({where:{booking_id:bid}}),1);
+    });
+    await cases('Owner cancellation serializes cancel/cancel and Owner/Customer races',async()=>{
+      async function confirmed(){const b=await fresh();await proof(b.id);const p=await prisma.paymentProof.findUnique({where:{booking_id:BigInt(b.id)}});await req(`/owner/payments/${p.id}/confirm`,0,'POST',{});return b;}
+      const one=await confirmed(),same=await Promise.all([
+        req(`/owner/bookings/${one.id}/cancel`,0,'POST',{reason:'Owner A'}),
+        req(`/owner/bookings/${one.id}/cancel`,0,'POST',{reason:'Owner B'}),
+      ]);assert.deepEqual(same.map(item=>item.status).sort(),[200,409]);assert.equal(await prisma.refund.count({where:{booking_id:BigInt(one.id)}}),1);
+      const two=await confirmed(),mixed=await Promise.all([
+        req(`/owner/bookings/${two.id}/cancel`,0,'POST',{reason:'Owner race'}),
+        req(`/bookings/${two.id}/cancel`,2,'POST',{reason:'Customer race'}),
+      ]);assert.deepEqual(mixed.map(item=>item.status).sort(),[200,409]);
+      const row=await prisma.booking.findUnique({where:{id:BigInt(two.id)}});assert.ok(['OWNER','CUSTOMER'].includes(row.cancelled_by));assert.equal(await prisma.refund.count({where:{booking_id:BigInt(two.id)}}),1);
+      assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:BigInt(two.id)}}}),0);
+    });
+    await cases('Owner cancellation rejects inconsistent payment and invalid state without writes',async()=>{
+      const pending=await fresh();assert.equal((await req(`/owner/bookings/${pending.id}/cancel`,0,'POST',{reason:'Không hợp lệ'})).status,409);
+      const inconsistent=await fresh(),iid=BigInt(inconsistent.id);await prisma.booking.update({where:{id:iid},data:{status:'CONFIRMED'}});
+      const result=await req(`/owner/bookings/${inconsistent.id}/cancel`,0,'POST',{reason:'Thiếu proof'});assert.equal(result.status,409);assert.equal(result.body.error.code,'INCONSISTENT_PAYMENT_STATE');
+      assert.equal((await prisma.booking.findUnique({where:{id:iid}})).status,'CONFIRMED');assert.equal(await prisma.refund.count({where:{booking_id:iid}}),0);assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:iid}}}),2);
+    });
+    await cases('Owner cancellation rolls back booking, refund and locks on mutation failure',async()=>{
+      function injected(kind){return new Proxy(prisma,{get(target,key){if(key==='$transaction')return(fn,opts)=>target.$transaction(tx=>fn(new Proxy(tx,{get(t,k){if(k===kind.model)return new Proxy(t[k],{get(m,p){if(p===kind.method)return async args=>{await m[p](args);throw Object.assign(new Error('Injected'),{code:'TEST_FAILURE'});};return m[p];}});return t[k];}})),opts);return target[key];}});}
+      for(const kind of [{model:'refund',method:'create'},{model:'courtSlotLock',method:'deleteMany'}]){
+        const b=await fresh();await proof(b.id);const bid=BigInt(b.id),payment=await prisma.paymentProof.findUnique({where:{booking_id:bid}});await req(`/owner/payments/${payment.id}/confirm`,0,'POST',{});
+        const beforeLocks=await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}});
+        await assert.rejects(createOwnerPaymentService(injected(kind),storage).cancelBooking(actors[0],bid,'Bảo trì'),error=>error.code==='TEST_FAILURE');
+        const [booking,proofRow]=await Promise.all([prisma.booking.findUnique({where:{id:bid}}),prisma.paymentProof.findUnique({where:{booking_id:bid}})]);
+        assert.equal(booking.status,'CONFIRMED');assert.equal(booking.cancelled_at,null);assert.equal(await prisma.refund.count({where:{booking_id:bid}}),0);
+        assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}}),beforeLocks);assert.equal(proofRow.status,'APPROVED');assert.equal(await prisma.bookingSlot.count({where:{booking_id:bid}}),2);
+      }
     });
     await cases('Refund lifecycle is private, owned, atomic and terminal',async()=>{
       const b=await fresh();await proof(b.id);const bid=BigInt(b.id),payment=await prisma.paymentProof.findUnique({where:{booking_id:bid}});

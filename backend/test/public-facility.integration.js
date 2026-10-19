@@ -70,8 +70,11 @@ test('Public Facility guest HTTP/PostgreSQL and scoped fixture cleanup', { timeo
       assert.equal((await list({ district: ' Phường Hải Châu '.normalize('NFD') })).body.meta.total, 2);
       assert.equal((await list({ district: 'Xã Hòa Vang' })).body.meta.total, 0);
       assert.equal((await list({ district: 'unknown' })).body.error.code, 'INVALID_DISTRICT');
-      for (const key of ['sort', 'min_price', 'max_price', 'min_rating', 'amenity_ids', 'date', 'start_time', 'end_time']) {
+      for (const key of ['sort', 'min_price', 'max_price', 'min_rating', 'amenity_ids']) {
         const r = await list({ [key]: '' }); assert.equal(r.status, 422); assert.equal(r.body.error.code, 'FILTER_NOT_CONFIGURED');
+      }
+      for (const query of [{ date: '' }, { date: '2030-01-01', start_time: '18:00' }]) {
+        const r = await list(query); assert.equal(r.status, 422); assert.equal(r.body.error.code, 'INVALID_SEARCH_RANGE');
       }
       for (const path of ['/facilities?q=a&q=b', '/facilities?district=a&district=b', '/facilities?page=0', '/facilities?page_size=101', '/facilities?unknown=1', '/facilities/0', `/facilities/${a.id}?q=x`])
         assert.equal((await get(path)).status, 422);
@@ -88,6 +91,13 @@ test('Public Facility guest HTTP/PostgreSQL and scoped fixture cleanup', { timeo
     }
     for (const [start, end, rate] of [['16:00', '22:00', '120000'], ['06:00', '16:00', '80000']])
       await prisma.priceRule.create({ data: { facility_id: a.id, start_time: time(start), end_time: time(end), hourly_rate: rate, created_at } });
+    await check('Interval search returns matching Courts without changing normal list DTO', async () => {
+      const [{ day }] = await prisma.$queryRaw`SELECT to_char((clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 1, 'YYYY-MM-DD') AS day`;
+      const searched = await list({ date: day, start_time: '18:00', end_time: '19:00' });
+      assert.equal(searched.status, 200); assert.equal(searched.body.meta.total, 1);
+      assert.deepEqual(searched.body.data[0].matching_courts, courts.slice(0, 2).map(court => ({ id: String(court.id), name: court.name })));
+      const normal = await list({}); assert.ok(!Object.hasOwn(normal.body.data[0], 'matching_courts'));
+    });
     await prisma.cancellationPolicy.create({ data: { facility_id: a.id, cutoff_hours: 2, created_at } });
     await prisma.bankAccount.create({ data: { facility_id: a.id, bank_name: 'PRIVATE_FIXTURE_BANK', account_number: '123', account_holder: 'PRIVATE_FIXTURE_HOLDER', created_at } });
     await check('Gallery/cover tie-break, active relations, prices, policy and strict DTO security', async () => {

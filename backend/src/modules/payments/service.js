@@ -7,6 +7,7 @@ const conflict = code => new AuthError(409, code, {
   BOOKING_EXPIRED: 'Thời gian gửi minh chứng đã hết.',
   PROOF_ALREADY_SUBMITTED: 'Booking đã có minh chứng thanh toán.',
   INVALID_BOOKING_STATE: 'Trạng thái booking không cho phép gửi minh chứng.',
+  PAYMENT_PROOF_NOT_ALLOWED_FOR_BOOKING_FLOW: 'Booking này không sử dụng minh chứng thanh toán.',
 }[code]);
 
 export function createPaymentService(db, storage, logger = console) {
@@ -39,6 +40,7 @@ export function createPaymentService(db, storage, logger = console) {
       await actorCheck(tx, actor, now);
       const booking = await tx.booking.findFirst({ where: { id, customer_id: BigInt(actor.user.id), court_id: initial.court_id } });
       if (!booking) throw missing();
+      if ((booking.booking_flow_version ?? 1) !== 1) return { error: 'PAYMENT_PROOF_NOT_ALLOWED_FOR_BOOKING_FLOW' };
       if (booking.status === 'EXPIRED' || (booking.status === 'PENDING_PAYMENT' && booking.expires_at <= now)) {
         await expire(tx, [booking], now);
         return { error: 'BOOKING_EXPIRED' }; // Commit expiry before reporting the conflict.
