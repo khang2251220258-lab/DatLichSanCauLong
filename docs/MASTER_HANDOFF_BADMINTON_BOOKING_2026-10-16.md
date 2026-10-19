@@ -1,5 +1,15 @@
 # MASTER HANDOFF --- WEBSITE ĐẶT SÂN CẦU LÔNG ĐÀ NẴNG
 
+## FINAL PROJECT STABILIZATION PHASE 4A / 4A.1 — RELEASE BASELINE AND DEPENDENCY AUDIT CLOSURE (2026-10-19)
+
+Starting HEAD was `ac8b4fe`. The immutable local release baseline is now split into four reviewable commits: `eff8eda` (`feat(backend): establish booking platform release baseline`), `c50f904` (`feat(frontend): establish verified application release baseline`), `23bb847` (`chore(tooling): add verified E2E and developer workflow baseline`), and `4600492` (`docs(release): record current platform specifications and evidence`). No catch-all staging, amend, rebase, tag, push, deployment, schema change, migration application, seed, demo-data mutation, or Booking #1119 mutation occurred.
+
+Baseline staged scans found no credentials, real environment files, or Playwright auth state. Backend unit tests passed **97/97**; frontend regression passed **409/409**; Prisma validate/generate/migration status passed with three migrations and development schema up to date; lint and production build passed. Temporary local read-only smoke checks returned HTTP 200 for health, readiness, public Facilities, Guest Search, and Recurring Search. The tracked Supabase CA remains a public trust certificate, and only placeholder `.env.example` files are tracked.
+
+Phase 4A initially found one full-development audit high advisory: `GHSA-68fv-2mgg-jv7q`, affecting `source-map-js >=1.0.0 <1.2.2`. Installed `1.2.1` was transitive through Vite/PostCSS and jsdom/css-tree, all development/build/test tooling; React production dependencies do not include it in the browser bundle. Both parents declare `^1.2.1`, so the patch-compatible `1.2.2` was pinned with an npm override and deterministic lockfile in `43a5b61` (`chore(frontend): remediate release dependency audit`). Clean install, full audit, and `--omit=dev` production audit now report **0 vulnerabilities**. Post-remediation frontend regression **409/409**, Chromium public smoke **1/1**, lint, and production build pass.
+
+The repository status is clean after this metadata closure. Production remains **NOT READY**: provider/domain/proxy topology, isolated backup/restore rehearsal, monitoring ownership, and staging deployment validation remain required go-live gates. Next recommended phase: **FINAL PROJECT STABILIZATION PHASE 4B — ISOLATED BACKUP/RESTORE REHEARSAL**.
+
 ## FINAL PROJECT STABILIZATION PHASE 3 (2026-10-19)
 
 Authenticated release rehearsal passed **1/1** in 3.4 minutes using the real Login UI and isolated `TEST_E2E_RELEASE_` PostgreSQL records. The run covered Customer V2 booking, Owner confirmation, Customer post-confirmation read, recurring create, Owner series confirmation, Owner Analytics, and an Admin Amenity mutation. Each critical POST occurred once; initial Analytics reads were one Overview plus one Courts request; no unexpected browser console or page error occurred. Exact manifest cleanup and verify-only postflight returned every fixture count to zero, and Booking #1119 remained unchanged.
