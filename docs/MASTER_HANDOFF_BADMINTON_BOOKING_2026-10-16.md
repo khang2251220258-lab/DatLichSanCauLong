@@ -1,5 +1,13 @@
 # MASTER HANDOFF --- WEBSITE ĐẶT SÂN CẦU LÔNG ĐÀ NẴNG
 
+## FINAL PROJECT STABILIZATION PHASE 4B — ISOLATED BACKUP / RESTORE REHEARSAL (2026-10-19)
+
+Phase 4B is **BLOCKED at preparation**, not passed. The source development database was fingerprinted read-only as `70d7a1b8f31f0e92`; it is PostgreSQL 17.0.6 using schema `public` with the three expected applied migrations. The non-PII source snapshot is 17 Users, 16 Facilities, 32 Courts, 48 Bookings, 141 BookingSlots, 66 CourtSlotLocks, 0 BookingSeries, 35 PaymentProofs, 9 Refunds, 3 OwnerRequests, and 3 Amenities. Booking #1119 remains `CANCELLED` with approved proof, refunded refund, 2 slots, 0 locks, and 80,000/24,000/56,000 snapshots.
+
+The workstation has no `pg_dump`, `pg_restore`, `psql`, Docker, or configured isolated restore target. No backup was created and no restore was attempted, because restoring to the source development database is prohibited. No source mutation, migration, seed, fixture, demo-data, or Booking #1119 mutation occurred. `docs/DEPLOYMENT.md` now records the required native backup procedure, source/target fingerprint guard, isolated-target restore steps, post-restore comparison, Prisma/read-only smoke verification, cleanup boundary, and RPO/RTO ownership placeholders.
+
+To resume, provide or provision a disposable non-production PostgreSQL target plus PostgreSQL client tooling in an operator-controlled environment. The target fingerprint must differ from the source before `pg_restore` is allowed. The next step remains completion of **FINAL PROJECT STABILIZATION PHASE 4B — ISOLATED BACKUP/RESTORE REHEARSAL**; staging and production deployment stay blocked.
+
 ## FINAL PROJECT STABILIZATION PHASE 4A / 4A.1 — RELEASE BASELINE AND DEPENDENCY AUDIT CLOSURE (2026-10-19)
 
 Starting HEAD was `ac8b4fe`. The immutable local release baseline is now split into four reviewable commits: `eff8eda` (`feat(backend): establish booking platform release baseline`), `c50f904` (`feat(frontend): establish verified application release baseline`), `23bb847` (`chore(tooling): add verified E2E and developer workflow baseline`), and `4600492` (`docs(release): record current platform specifications and evidence`). No catch-all staging, amend, rebase, tag, push, deployment, schema change, migration application, seed, demo-data mutation, or Booking #1119 mutation occurred.

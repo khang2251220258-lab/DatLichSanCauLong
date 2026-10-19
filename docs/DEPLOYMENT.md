@@ -97,7 +97,36 @@ Forgot Password requires a verified Resend sender and an HTTPS `FRONTEND_URL`. R
 
 Before migration or production release, obtain a Supabase backup appropriate to the plan and record its timestamp/identifier outside the repository. Define retention, RPO, and RTO with the deployment owner.
 
-Restore has not been rehearsed yet. Phase 3 must restore a backup into an isolated non-production database, run Prisma migration status and integrity checks, and record elapsed time. Never rehearse restore against the production database.
+### Backup procedure
+
+Backup and restore are operational tasks, never application migrations. Run them only with native PostgreSQL tooling (`pg_dump`, `pg_restore`, and `psql`) from a controlled operator workstation or CI runner. The required secrets stay in the operator environment and must never be printed, placed in a command history artifact, or committed.
+
+1. Capture a read-only source fingerprint: the configured safe database fingerprint, `current_database()`, schema name, server version, applied migration names, and agreed non-PII table counts.
+2. Create a complete custom-format native backup with `pg_dump`; store the artifact outside the repository in encrypted operator-controlled storage.
+3. Verify the artifact has non-zero size and that `pg_restore --list` can read it before any restore attempt.
+4. Record the backup timestamp, tool version, artifact location/retention reference, and source fingerprint outside Git. RPO/RTO remain deployment-owner decisions until a provider and topology are approved.
+
+### Restore safety guard and rehearsal
+
+Restore has not yet been rehearsed. A rehearsal is valid only when the target is a disposable, isolated PostgreSQL database. It must never be the development source, production database, or an ambiguous shared database.
+
+Before restore, the operator must capture fingerprints from both endpoints and fail closed unless all are true:
+
+- Source and target connection identities/fingerprints differ.
+- The target is explicitly designated disposable and non-production.
+- The target can be safely recreated by the target owner.
+- The backup source is read-only for the rehearsal.
+- No backup artifact, target URL, password, session value, private storage identifier, or dump is written to Git.
+
+Restore with `pg_restore` into the isolated target and do not substitute `prisma migrate`, `db push`, `migrate reset`, seed, or ad-hoc fixture writes for an actual restore. Restore errors, ownership errors, and extension/privilege failures are release evidence and must not be ignored.
+
+### Post-restore verification
+
+On the restored target only, compare applied Prisma migrations, expected schemas/tables/constraints/indexes, and non-PII counts for `users`, `facilities`, `courts`, `bookings`, `booking_slots`, `court_slot_locks`, `booking_series`, `payment_proofs`, `refunds`, `owner_requests`, and `amenities`. Verify historical Booking #1119 without exposing Customer PII: status, proof/refund status, slot count, lock count, and monetary snapshots must match the source snapshot.
+
+Then use Prisma only for `validate`, `migrate status`, and a read-only connection check against the isolated target. A temporary backend may point only to that target and may execute only health, readiness, Public Facility, Guest Search, and Recurring Search GET smoke checks. Do not run authenticated mutations, seeds, or cleanup against the source database.
+
+Cleanup may remove only the explicitly disposable restore target after verification. Retain or delete the temporary backup according to the operator retention policy; never commit it. Application rollback remains a redeploy of a prior immutable application artifact and is not equivalent to database restore.
 
 ## Rollback
 
