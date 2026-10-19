@@ -1,4 +1,44 @@
-﻿# Hướng dẫn cho AI Coding Agents
+# Hướng dẫn cho AI Coding Agents
+## Project workflow và skill routing
+
+Project dùng workflow `SPEC → PLAN → TASK → IMPLEMENT → TEST → REVIEW` với hướng dẫn tại `.agents/skills/{spec,plan,task,implement,test,review}/SKILL.md`. Route theo ý định: review/audit/kiểm tra → `review`; phân tích contract → `spec`; lập kế hoạch → `plan`; chia việc → `task`; triển khai → `implement`; kiểm thử → `test`. Không phụ thuộc cứng vào từ khóa.
+
+Nếu user yêu cầu hoàn thiện feature từ đầu đến cuối, áp dụng nội bộ toàn workflow và tiếp tục qua implementation, test, review. Không trả “READY FOR IMPLEMENTATION” làm kết quả cuối khi user đã yêu cầu implementation, trừ khi có blocker thật. `implement` là skill duy nhất mặc định được sửa application source; các phase khác chỉ ghi source khi user cho phép rõ.
+
+## Thứ tự nguồn chuẩn
+
+1. Database schema/migration hiện hành quyết định structural persistence constraints.
+2. Backend/frontend source hiện hành quyết định behavior đã implement.
+3. Approved/current contracts và specs quyết định behavior phải implement.
+4. Approved UI references quyết định presentation, không quyết định capability hay dữ liệu runtime.
+5. Documentation/status hiện hành mô tả trạng thái và evidence.
+6. Historical/superseded documentation chỉ lưu lịch sử, không hạ trạng thái hiện tại.
+
+Docs stale không ghi đè source. Nếu source và approved contract mâu thuẫn thực sự, dừng phần bị ảnh hưởng và báo blocker; không tự chọn một phía hoặc âm thầm đổi contract.
+
+## An toàn chung cho mọi phase
+
+- Không migration khi chưa chứng minh schema change cần thiết và task chưa cho phép; không sửa migration đã apply.
+- Không seed nếu task không yêu cầu; không mutate persistent demo data để test.
+- Automated tests không gọi Cloudinary, Resend hoặc production external service; dùng adapter/fake và cleanup fixture.
+- Không expose private storage identifier, credential, token, hash hoặc internal path.
+- Không hard-code dữ liệu PNG/mock thành runtime contract.
+- Mutation giữ auth, capability, ownership, Origin/CSRF; không tin client về actor, ownership, state, amount hoặc server-managed metadata.
+- Giữ DTO whitelist, strict response validation, DB time, transaction và lock order đã được source/spec xác nhận.
+- Approved Owner giữ CUSTOMER capability và có thêm OWNER capability.
+- Không làm yếu test. Chỉ báo PASS/COMPLETE khi có evidence; suite chưa chạy ghi `NOT RUN`.
+- Không tự phát minh API/schema/behavior hay mở rộng business rule. Giữ lịch sử bằng nhãn historical/superseded khi phù hợp.
+
+## Lệnh kiểm chứng hiện hành
+
+Trên Windows dùng `npm.cmd` trong đúng package:
+
+- Frontend: `npm.cmd test`, `npm.cmd run lint`, `npm.cmd run build`.
+- Backend local: `npm.cmd test`.
+- PostgreSQL integration có scripts `test:auth:db`, `test:password:db`, `test:owner:db`, `test:facility:db`, `test:court:db`, `test:booking-config:db`, `test:presentation:db`, `test:payment:db`.
+- Integration không có npm script chạy theo file hiện hành, ví dụ `node --test test/booking.integration.js`, `test/availability.integration.js`, `test/public-facility.integration.js`.
+
+Chạy targeted trước, DB integration khi liên quan persistence/transaction, regression liên quan, rồi full suite/lint/build theo rủi ro. Luôn kiểm tra `package.json` và file test tại thời điểm chạy.
 
 Refund workflow đã triển khai ngày 2026-10-10: đọc `docs/specs/PAYMENT_SPEC.md`, `docs/specs/BOOKING_SPEC.md` và hai approved PNG `owner-booking-refund-desktop.png`, `customer-booking-refund-desktop.png`. UI nằm trong Booking Detail; API read/mutation theo `refund_id`. Proof JPEG/PNG ≤5 MB, ≤25 triệu decoded pixels, private/authenticated, immutable sau submit. State duy nhất `PENDING → PROOF_SUBMITTED → REFUNDED`; không Refund Center, replace/delete/resubmit, dispute hoặc auto-refund.
 
