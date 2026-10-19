@@ -8,13 +8,13 @@ Booking Detail trả bank/amount/deadline snapshot và `qr_image_url` nullable, 
 
 ## Current implementation baseline — 2026-10-07
 
-Create/list/detail, frontend Booking, lazy expiry, PaymentProof handoff và Owner confirm/reject đã triển khai. `PENDING_CONFIRMATION` không countdown/auto-expire/Customer cancel; Owner phải confirm hoặc reject. Expiry worker, cancellation/completion đầy đủ và Refund vẫn PARTIAL/DEFERRED theo `FEATURE_STATUS.md`.
+Create/list/detail, frontend Booking, lazy expiry, PaymentProof handoff, Owner confirm/reject, Customer và Owner hủy `CONFIRMED` đã triển khai. `PENDING_CONFIRMATION` không countdown/auto-expire/Customer cancel; Owner phải confirm hoặc reject. Cả hai nhánh hủy `CONFIRMED` đủ điều kiện đều tạo Refund `PENDING` nguyên tử, nhả slot locks và giữ lịch sử; Refund processing `PENDING → PROOF_SUBMITTED → REFUNDED` cũng đã triển khai. Expiry worker và completion tự động vẫn deferred theo `FEATURE_STATUS.md`.
 
 Payment Backend Phase1 đã triển khai và kiểm chứng ngày2026-10-06 theo PAYMENT_SPEC: nhận một proof hợp lệ trước DB expiry → PENDING_CONFIRMATION, giữ locks, không gia hạn; nhận proof booking cũ không tái áp Facility ACTIVE/Court ACTIVE/Owner ACTIVE nhưng Customer phải ACTIVE. Bank và QR snapshot giữ nguyên; QR delivery và Owner review đã triển khai ở các phase sau. Lock order và expiry dùng chung helper transaction với Booking backend.
 
 Các Owner configuration APIs triển khai riêng theo [BOOKING_CONFIGURATION_SPEC.md](BOOKING_CONFIGURATION_SPEC.md). Price replace toàn bộ, policy/bank upsert không sửa snapshot cũ. Booking Phase 1 đã triển khai create/list/detail và lazy expiry; giữ điều kiện giá/ngân hàng bắt buộc, policy không bắt buộc khi create, fallback hủy thiếu cutoff như dưới đây. Không đổi tính slot/rounding/cọc30%/remaining70%.
 
-Court Core theo [COURT_SPEC.md](COURT_SPEC.md) cho đổi name dù có Booking, không sửa court_name_snapshot lịch sử. ACTIVE/INACTIVE không tự hủy/xóa Booking, CourtSlotLock hoặc CourtBlock. Court tồn tại chưa đủ booking-ready. PENDING_CONFIRMATION tiếp tục giữ slot không expiry, mapping HELD theo [AVAILABILITY_SPEC.md](AVAILABILITY_SPEC.md), không được hiển thị AVAILABLE; Availability, Booking writer và Payment core đã triển khai. Expiry worker, Refund và notification vẫn deferred.
+Court Core theo [COURT_SPEC.md](COURT_SPEC.md) cho đổi name dù có Booking, không sửa court_name_snapshot lịch sử. ACTIVE/INACTIVE không tự hủy/xóa Booking, CourtSlotLock hoặc CourtBlock. Court tồn tại chưa đủ booking-ready. PENDING_CONFIRMATION tiếp tục giữ slot không expiry, mapping HELD theo [AVAILABILITY_SPEC.md](AVAILABILITY_SPEC.md), không được hiển thị AVAILABLE; Availability, Booking writer, Payment core và Refund workflow đã triển khai. Expiry worker và notification vẫn deferred.
 
 Baseline v1: Customer capability áp dụng cho cả Approved Owner khi dùng chức năng cá nhân; quyền quản lý Owner chỉ áp dụng tài nguyên cơ sở mình. PENDING_CONFIRMATION không countdown 5 phút, không tự expire, không cho Customer cancel; Owner phải Confirm hoặc Reject.
 
@@ -189,7 +189,7 @@ Transaction khóa User (ID tăng dần, loại trùng) → Facility → Court, t
 
 ## Kiểm chứng khi triển khai
 
-Cần kiểm thử tích hợp đồng thời create/create, create/block, submit/expire, confirm/reject, cancel/confirm, cancel/cancel, cancel/complete, cancel/expiry và refund submit/confirm lặp; kiểm tra rollback giải phóng/giữ toàn bộ slot đúng trạng thái. Kiểm tra các mốc bằng expires_at, sát start_at, qua ranh giới giá, refresh/mất response. HISTORICAL/SUPERSEDED — Booking Phase 1 ban đầu chỉ có create/list/detail/lazy expiry và Payment upload. Owner confirm/reject và Customer confirmed cancellation với tạo Refund PENDING nguyên tử nay đã triển khai; Refund processing lifecycle và expiry worker vẫn chưa hoàn tất.
+Cần kiểm thử tích hợp đồng thời create/create, create/block, submit/expire, confirm/reject, cancel/confirm, cancel/cancel, cancel/complete, cancel/expiry và refund submit/confirm lặp; kiểm tra rollback giải phóng/giữ toàn bộ slot đúng trạng thái. Kiểm tra các mốc bằng expires_at, sát start_at, qua ranh giới giá, refresh/mất response. Ngày 2026-10-11 Owner cancellation đã kiểm chứng race Owner/Owner và Owner/Customer, rollback khi tạo Refund/nhả lock lỗi, Availability mở lại, BookingSlot và PaymentProof được giữ. HISTORICAL/SUPERSEDED — Booking Phase 1 ban đầu chỉ có create/list/detail/lazy expiry và Payment upload; hiện Owner confirm/reject, hai actor hủy CONFIRMED và Refund lifecycle đã triển khai, expiry worker vẫn chưa hoàn tất.
 
 ## Availability Phase 1 — contract đã chốt
 
@@ -217,7 +217,7 @@ Success envelope theo API_SPEC; ID string, thời điểm UTC ISO Z, tiền deci
 
 `BookingDetail` (POST 201 và GET detail 200): toàn bộ BookingSummary cộng `cancellation_cutoff_hours_snapshot` (integer hoặc null), `bank_name_snapshot`, `account_number_snapshot`, `account_holder_snapshot`, `slots`.
 
-Mỗi slot chỉ `start_at`, `end_at`, `hourly_rate_snapshot`, `slot_amount`; order start_at ASC. Không trả BookingSlot/lock ID, customer_id, Owner User, session, proof/refund, storage path hay metadata duyệt. `qr_image_path_snapshot` vẫn chụp trong DB nếu có nhưng không expose path; QR delivery/upload ngoài Phase 1, thông tin chuyển khoản text đủ để tiếp tục Payment phase. Không trả QR URL giả.
+Mỗi slot chỉ `start_at`, `end_at`, `hourly_rate_snapshot`, `slot_amount`; order start_at ASC. Không trả BookingSlot/lock ID, customer_id, Owner User, session, PaymentProof hoặc storage path/metadata duyệt. Detail hiện hành trả `refund: null` hoặc Refund summary whitelist; proof Refund được đọc riêng qua endpoint có authorization và signed URL tạm. `qr_image_path_snapshot` vẫn chụp trong DB nếu có nhưng không expose path; QR delivery dùng signed URL từ snapshot, không đọc BankAccount live hoặc trả URL giả.
 
 POST/detail có meta.server_time. List trả data array và meta.server_time/page/page_size/total; count và items cùng snapshot đọc. List status là trạng thái hiệu lực: PENDING_PAYMENT hết hạn tại snapshot được biểu diễn EXPIRED, không ghi DB. Detail lazy expiry commit trước khi trả EXPIRED. expires_at giữ nguyên lịch sử, chỉ dùng countdown cho PENDING_PAYMENT còn hạn; không countdown PENDING_CONFIRMATION.
 
@@ -293,6 +293,27 @@ Khi implementation phải test min/max slot, cùng ngày, start bằng DB time, 
 
 Ngày 2026-10-04: Booking Phase 1 backend đã triển khai POST /api/v1/bookings, GET /api/v1/bookings và GET /api/v1/bookings/:id. Chỉ Customer capability và dữ liệu cá nhân; POST Origin/CSRF. Transaction khóa User IDs tăng dần/loại trùng → Facility → Court → Booking liên quan → slot locks, recheck sau khóa. Giá tính chính xác bằng BigInt theo đơn vị nửa đồng, rounding theo spec; batch ghi BookingSlot/CourtSlotLock, overflow kiểm tra trước ghi. Lazy expiry tại create/detail, list read-only effective status; Availability không thay đổi. Không PaymentProof/Refund/worker/frontend.
 
+### Booking V2 State & Expiry Foundation — database verification 2026-10-15
+
+Migration additive `20261015000000_booking_v2_foundation` đã apply trên Supabase DEVELOPMENT: dữ liệu hiện hữu giữ flow version 1; flow version chỉ nhận 1/2; V1 giữ deadline xác nhận null và V2 bắt buộc deadline xác nhận; `confirmed_by_user_id` tham chiếu User. PostgreSQL integration đã chứng minh V2 giữ slot trước deadline, hết hạn theo DB time chuyển `EXPIRED` và nhả lock nguyên tử, stale hold có thể được thay thế, concurrent create chỉ một winner, rollback không để Booking/BookingSlot/CourtSlotLock partial và Availability dual-read đúng. Rollout runtime vẫn mặc định V1; Owner confirm/reject V2 và Payment V2 chưa được mở trong foundation này.
+
 Local npm test: 41/41 PASS. Booking PostgreSQL: 15/15 PASS (14 ca + suite cha), gồm 6 slot, hold 5 phút, DTO/ownership/CSRF, expiry/read-only list, mất lock nhưng booking còn hiệu lực, PK collision thật, hai Customer cùng slot, self-booking, hai Owner đặt chéo, writer state/price/bank/Owner lock race và rollback sau ghi lock. Fixture cleanup PASS; HTTP health200.
 
 Regression các module cũ và ghi nhận lượt Presentation chạy lại xem FEATURE_STATUS. Các test Payment/cancel/complete/worker/CourtBlock writer ở mục kế hoạch vẫn deferred; không khẳng định đã kiểm chứng chúng.
+
+## Booking V2 Phase 1 foundation — approved implementation (2026-10-15)
+- V1: `booking_flow_version=1`, `confirmation_expires_at=null`; giữ `PENDING_PAYMENT`, PaymentProof và PENDING_CONFIRMATION không timeout.
+- V2: `booking_flow_version=2`; create trực tiếp PENDING_CONFIRMATION, deadline DB time +30 phút, giữ BookingSlot/CourtSlotLock. `now < deadline` còn hold; `now >= deadline` chuyển EXPIRED và nhả locks nguyên tử.
+- Controlled cutover dùng `BOOKING_FLOW_VERSION`; mặc định 1. Không suy flow chỉ từ status.
+- Create dọn stale V1/V2 holds dưới cùng lock order rồi recheck overlap. Availability read-only bỏ qua V2 hold hết hạn. Customer detail biểu diễn effective EXPIRED; Owner detail thực hiện lazy expiry dưới khóa trước khi trả.
+- V2 payment instructions, Owner confirm/reject, notification, worker và refund semantics được defer. PaymentProof/Refund hiện tại tiếp tục là V1 và phải fail closed với V2.
+## Booking V2 Phase 2 — deposit / bank transfer
+
+- V2 create vẫn nguyên tử Booking + BookingSlot + CourtSlotLock và chỉ commit khi Facility/Court/price cùng BankAccount nhận cọc hợp lệ.
+- V2 tạo trực tiếp `PENDING_CONFIRMATION`, cọc 30%, còn lại 70%, deadline `confirmation_expires_at = DB time + 30 phút`.
+- Booking Detail là DTO hướng dẫn chuyển khoản: bank/QR snapshot, amounts, `transfer_reference = CLDN <BOOKING_ID>`, deadline và `meta.server_time`. Reference được derive ở backend, không nhận từ client và không cần lưu DB.
+- Customer V2 không upload PaymentProof. Hết countdown trình duyệt chỉ kích hoạt GET authoritative; backend mới được chuyển `EXPIRED` và nhả locks.
+- V1 giữ `PENDING_PAYMENT → PaymentProof → PENDING_CONFIRMATION` và không bị suy flow từ status dùng chung.
+
+## Booking V2 Phase 3 — Owner Confirm/Reject (2026-10-16)
+V2 `PENDING_CONFIRMATION` còn hạn cho Owner sở hữu Confirm → `CONFIRMED` (DB `confirmed_at`, actor `confirmed_by_user_id`, slot tiếp tục occupied) hoặc Reject → `REJECTED` (trimmed reason 1–500, `rejected_at`, nhả CourtSlotLock, giữ BookingSlot). `now >= confirmation_expires_at` ưu tiên reconcile `EXPIRED` và nhả lock. Lock order giữ User IDs tăng dần → Facility → Court → Booking. V1 chỉ đi qua PaymentProof review và không được endpoint V2 bypass.

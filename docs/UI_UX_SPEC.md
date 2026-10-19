@@ -1,5 +1,110 @@
 # UI/UX Specification
 
+## Final Stabilization Phase 3 — authenticated release rehearsal (2026-10-19)
+
+- Customer, Owner, and Admin flows were exercised through the real Login UI with isolated `TEST_E2E_RELEASE_` records only. Desktop, tablet, and mobile checks preserved one H1 and no horizontal overflow at the asserted release routes.
+- Explicit logout never restores a resource-scoped Booking or Series URL for the next account. Capability remains authoritative, and resource ownership is never inferred from a stale return path.
+- `release-*.png` screenshots are runtime **REVIEW CANDIDATE** evidence only. They do not replace approved references or introduce data/behavior beyond implemented API contracts.
+
+## Recurring Customer authenticated runtime — verified 2026-10-18
+
+- `/booking-series` và `/booking-series/:series_id` đã được kiểm tra qua đăng nhập Customer thật ở desktop 1440px, tablet 768px và mobile 390px. Direct load, SPA navigation, Back/Forward, mixed child states, cancellation modal và Refund `PENDING` đều giữ hierarchy hiện hành và không horizontal overflow.
+- React StrictMode chỉ phát một initial GET cho Series List và một initial GET cho Series Detail. Route không phát sinh per-child Booking, Refund hoặc PaymentProof request; background/navigation reads vẫn giữ AbortController, generation guard và snapshot protection.
+- Sáu PNG `recurring-customer-list-desktop.png`, `recurring-customer-detail-{desktop,tablet,mobile}.png`, `recurring-customer-refund-desktop.png` và `recurring-customer-cancel-modal.png` là screenshot **REVIEW CANDIDATE**, chưa phải approved visual reference.
+- Runtime fixture không tạo `PROOF_SUBMITTED`/`REFUNDED` nếu không có private authenticated asset hợp lệ. Không được thay giới hạn này bằng URL/storage identifier giả.
+
+## Recurring occurrence cancellation and Refund — implemented 2026-10-18
+
+- Customer Series Detail `/booking-series/:series_id` uses a compact responsive occurrence list. Each child shows date/time, Facility/Court, semantic status and its own total/deposit/remaining amounts without turning the parent Series into a cancelled state.
+- Cancellation availability, deadline and block explanation come only from the Series Detail DTO. An eligible child opens the shared accessible confirmation modal; disabled/ineligible children do not expose a mutation action. No browser-clock authorization logic or optimistic cancellation is used.
+- A cancelled child keeps subdued history styling and shows cancellation metadata plus Refund `PENDING`, `PROOF_SUBMITTED` or `REFUNDED`. Private proof is fetched only after the Customer expands it, then the existing signed-URL and acknowledgement interaction is reused.
+- Desktop keeps a compact split detail layout; tablet/mobile stack child financials and actions without horizontal overflow. Focus, touch targets, non-color status labels and reduced-motion behavior remain available.
+- Unknown mutation results fail closed behind an authoritative-read action. Whole/future/bulk Series cancellation and recurring PaymentProof have no UI.
+
+## Recurring Facility Search — visual redesign verified 2026-10-17
+
+- `/facilities?mode=recurring` keeps the existing URL-backed contract and presents the two search modes as an accessible segmented control with `aria-pressed`.
+- The recurring form groups district/weekday, date range and time range, followed by a neutral constraint block and separate clear/submit actions. Desktop, tablet and mobile layouts avoid the former single-row field spread and horizontal overflow.
+- Initial instruction, loading, empty and error states remain distinct. Once searched, the result heading uses only authoritative `occurrence_count` and pagination total; Facility cards continue to render the existing whitelist and `matching_courts` without price derivation or per-card requests.
+- Playwright screenshots `recurring-search-redesign-{desktop,tablet,mobile}.png` and `recurring-search-results-redesign-desktop.png` are review candidates only, not approved references.
+
+## Guest Search public UI — implemented 2026-10-17
+
+- Home and Facility List expose the real `district`, local date, start-time, and end-time contract. Time controls use 30-minute boundaries; the client validates complete 1–6-slot intervals up to 3 hours and 30 days, while DB time and match eligibility remain authoritative on the backend.
+- `/facilities` keeps `q`, `district`, interval, page, and page size in URL state. Loading, background refresh, empty, and error remain distinct; interval cards render only server-returned `matching_courts` and describe them as a point-in-time match.
+- Facility Detail preserves the originating query, marks matching Courts after intersecting with the authoritative Court DTO, and loads Availability for only the selected Court/date. A requested interval is selected only when every corresponding returned slot is still AVAILABLE.
+- Guest “Tiếp tục đặt sân” stores intent only in React/router memory and navigates to Login. Login/Register restore confirmation only for a CUSTOMER-capable authoritative session; no localStorage/sessionStorage, pre-login POST, auto-submit, or cross-role route restore is allowed.
+- Search intent carries Facility/Court/date/start/end for navigation. Slot amounts shown before create are estimates from Availability, never an authoritative quote; Booking create recalculates price and rechecks locks. `SLOT_UNAVAILABLE` offers a return to the preserved search context, and unknown mutation results stay fail-closed.
+- Responsive behavior uses the existing PublicLayout: search controls stack without horizontal overflow, cards keep real DTO fields, and keyboard/focus semantics remain available on desktop, tablet, and mobile.
+
+## Admin Facility Detail — redesigned 2026-10-14
+
+Route `/admin/facilities/:facility_id` tiếp tục dùng Admin Workspace Shell và trình bày một H1 chung **Chi tiết cơ sở**. Facility name, ID và semantic status tạo thành identity riêng; desktop dùng workspace xấp xỉ 65/35 gồm thông tin Facility bên trái, Owner và moderation bên phải. Tablet chuyển hai card bên phải thành một hàng khi đủ chỗ; mobile xếp một cột, không overflow ngang.
+
+Màn hình chỉ dùng exact Admin Facility Detail DTO hiện hành: core Facility, Owner tối thiểu và approval/suspension metadata. Không render Court, ảnh, Amenity, pricing, availability hoặc thống kê. `DRAFT`/`REJECTED` có ngữ cảnh chỉ đọc; `PENDING` có Reject/Approve; `ACTIVE` có Suspend; `SUSPENDED` có Activate. Rejection/suspension reason hiển thị nguyên văn và wrap. Modal, validation reason 1–500, confirmation, Origin/CSRF, strict DTO validation, authoritative refetch, 409/unknown-result recovery, abort/generation guard và snapshot preservation giữ nguyên.
+
+Initial read chưa có snapshot dùng skeleton ổn định; background revalidation giữ nội dung gần nhất và dùng warning/retry hiện hành. Runtime screenshot candidates desktop/tablet/mobile được tạo bằng authenticated Playwright read-only từ record tìm qua status filter; chúng chưa tự động thay đổi capability hoặc business contract của các PNG approved lịch sử.
+
+## Shared Personal Account Center
+
+`/profile` is the shared Account Center for every authenticated capability. Its sections are `Hồ sơ cá nhân`, `Bảo mật`, and `Quyền & tài khoản`; desktop uses section navigation beside the content workspace and smaller viewports stack safely. Email remains read-only. Local-password accounts can change password and are then signed out; other accounts see a read-only security explanation. The authenticated identity opens an accessible menu for Profile, the appropriate workspace, and the existing logout flow. Owner Request links back to Profile before submission; submitted request snapshots remain immutable.
+
+## Admin Facility List — redesigned 2026-10-13
+
+Route `/admin/facilities` giữ nguyên Admin Workspace Shell và contract filter/phân trang hiện hành. Vùng nội dung ưu tiên ngữ cảnh vận hành, H1, mô tả ngắn, filter trạng thái, tổng kết quả authoritative từ `meta.total`, danh sách và pagination. Không thêm search, dashboard metrics hoặc dữ liệu Owner/Court/gallery/amenity/pricing vì list DTO không cung cấp các field đó.
+
+Desktop dùng semantic `table` với Facility identity, district/address, giờ hoạt động, trạng thái, thời điểm gửi duyệt và action chi tiết. Dưới 900px, cùng markup semantic chuyển thành card hai cột; mobile chuyển một cột với action đủ touch target và không horizontal overflow. Initial loading, blocking error, empty và background refresh/error tiếp tục dùng reliable Admin read: snapshot gần nhất không bị thay bằng blocking error. Các screenshot runtime `admin-facilities-{desktop,tablet,mobile}.png` là review candidates, chưa tự động trở thành approved references.
+
+## Admin Workspace Shell
+
+Admin dùng cùng token và ngôn ngữ thị giác với Customer/Owner nhưng thiên về vận hành, ít trang trí. Header nằm trong normal document flow, hiển thị brand, ngữ cảnh quản trị, tài khoản và logout; không được che nội dung. Workspace desktop gồm sidebar và main; tablet chuyển navigation ngang; mobile xếp navigation thành các touch target toàn chiều rộng.
+
+Navigation cấp cao chỉ có Quản lý cơ sở, Yêu cầu chủ sân và Tiện ích. Route detail tiếp tục giữ mục cha active bằng `aria-current`; trạng thái active không chỉ dựa vào màu. Shell có đúng một `main`, focus rõ, logical DOM order, không horizontal overflow và tôn trọng reduced motion. Phase này không redesign nội dung list/detail/catalog bên trong.
+
+Playwright Admin shell chỉ đọc, dùng credential từ environment. Screenshot sinh từ runtime là review candidate cho đến khi người dùng duyệt; không tự đăng ký thành reference CURRENT/APPROVED.
+
+## Owner Booking Detail — redesigned 2026-10-13
+
+Route `/owner/bookings/:booking_id` dùng Owner Workspace Shell hiện hành và bố cục vận hành hai cột khoảng 68/32 trên desktop; tablet/mobile chuyển thành một cột mà không ép desktop composition. H1 chung là **Chi tiết đặt sân**. Main column ưu tiên Customer, Facility/Court/lịch/slot, PaymentProof actions, cancellation metadata và Refund; rail phụ tóm tắt tổng tiền/cọc/còn lại, trạng thái xử lý và thời điểm tạo.
+
+Cả bảy Booking states có presentation riêng; chỉ render Confirm/Reject, Owner cancellation và Refund action khi authoritative state cho phép. Read-only states có hướng dẫn trạng thái cụ thể thay vì vùng action trống. UI tiếp tục giữ private signed proof URL, strict response validation, 409/unknown-result recovery, snapshot preservation khi background refresh lỗi, request abort/generation guard, auth/ownership và CSRF/Origin.
+
+## Owner Booking Detail — pre-redesign baseline 2026-10-12 (historical)
+
+Route `/owner/bookings/:booking_id` dùng H1 tổng quát **Chi tiết đặt sân** cho mọi trạng thái; “Xác nhận thanh toán” chỉ là tên hành động/khối review trong `PENDING_CONFIRMATION`, không phải page title. Information architecture cho redesign theo thứ tự: header + status → Customer và Facility/Court → lịch/slot → tài chính → PaymentProof/actions → cancellation metadata → Refund lifecycle. Owner Workspace Shell và Owner Booking List approved giữ nguyên.
+
+Behavior tiếp tục theo `BOOKING_SPEC.md`, `PAYMENT_SPEC.md` và [audit hiện hành](reviews/OWNER_BOOKING_DETAIL_PRE_REDESIGN_AUDIT.md). Ba reference payment review, confirmed cancellation và refund được phối hợp theo state; không reference nào tự mở rộng API hoặc state machine. Redesign phải giữ exact DTO validation, ownership/CSRF, signed URL expiry, request cancellation, snapshot preservation và recovery sau 409/unknown result.
+
+## Owner Booking List — redesigned 2026-10-12
+
+Route `/owner/bookings` dùng Owner workspace shell hiện hành và chỉ redesign content list. Header có eyebrow **Vận hành đặt sân**, H1 **Quản lý đặt sân**, mô tả ngắn và select **Trạng thái** có nhãn. Filter giữ nguyên bảy status, query/pagination semantics và không bổ sung search, date/facility filter, sort hoặc analytics.
+
+Desktop dùng management list theo hierarchy: Booking ID + Customer, Facility + Court, ngày + khoảng giờ, tiền cọc, semantic status và action **Xem chi tiết →**. Phone là dữ liệu optional và không có fallback giả. Tablet chuyển mỗi row thành card hai cột; mobile thành một cột với status/identity rõ và action rộng đủ thao tác. Status luôn có text, focus/touch target và reduced-motion theo shared tokens.
+
+Initial loading, blocking error/retry, empty, filtered-empty, populated và background refresh/error là các presentation riêng. Background refetch không xóa snapshot đã xác minh. Owner Booking Detail, Payment, Refund, cancellation, API/DTO validator, auth/ownership và state machine giữ nguyên.
+
+## Owner Facility List — redesigned 2026-10-11
+
+Route `/owner/facilities` tiếp tục dùng Owner workspace shell approved và chỉ thay vùng content. Header nội dung gồm eyebrow **Quản lý cơ sở**, H1 **Cơ sở của tôi**, mô tả ngắn và CTA **Thêm cơ sở**. Danh sách ưu tiên tên Facility, sau đó là district/address, giờ hoạt động/số sân, status badge theo mapping hiện hành và action chi tiết có accessible name chứa tên cơ sở.
+
+Desktop dùng management list năm vùng thông tin; dưới 900px mỗi hàng chuyển thành card hai cột và dưới 600px thành một cột. Trạng thái không chỉ dựa vào màu; focus ring, touch target và reduced-motion dùng product tokens hiện hành. Initial loading dùng skeleton có status accessible; background refresh giữ snapshot và hiển thị trạng thái đồng bộ; background error giữ dữ liệu kèm retry; empty và blocking error là hai presentation riêng.
+
+Không hiển thị rating, doanh thu, booking totals, occupancy, availability hoặc ảnh giả. Không dùng tổng Court/status của page làm analytics toàn tài khoản. `meta.total` từ API được phép hiển thị như metadata danh sách, không tạo summary strip riêng trong phase này. Owner shell, route, auth/capability, API/DTO validation và business state không đổi.
+
+## Owner Analytics dashboard — implemented 2026-10-17
+
+Route `/owner/analytics` uses the existing Owner Workspace Shell and adds **Thống kê** as the third top-level Owner navigation item. It has one H1 **Thống kê hoạt động**, Facility/date filters persisted in `from`, `to`, `facility_id`, and Court pagination in `page`; the default is the latest 30 local days in `Asia/Ho_Chi_Minh`. The four primary cards are confirmed booking value, confirmed booking count, confirmed hours and utilization. Confirmed booking value explicitly states that it is not actual received revenue; null utilization renders **Chưa có capacity**, never `0%`.
+
+Authenticated runtime verification on 2026-10-18 passed desktop/tablet/mobile with no horizontal overflow. Initial data uses one Overview and one Courts request in parallel; route revisits retain the last-known-good protected snapshot during background revalidation. Generated `owner-analytics-{desktop,tablet,mobile}.png` files are screenshot review candidates, not approved references.
+
+Monthly, weekday, half-hour heatmap, daily capacity and Court performance use only Analytics DTO aggregates. Heatmap values have readable labels and component-scoped horizontal scrolling. Desktop Court data is a semantic table and tablet/mobile becomes labelled cards. Initial load uses stable skeletons; verified protected snapshots remain visible during revalidation/error. No Customer PII, bank/proof/storage data, frontend aggregation from Booking rows, or chart dependency is introduced.
+
+## Owner Workspace Shell — implemented 2026-10-11
+
+Mọi route `/owner/*` dùng một operational workspace shell thống nhất với Customer product tokens nhưng không dùng composition marketing. Header compact giữ branding, account identity và logout authoritative; không có notification, search, message hoặc workspace selector giả. Sidebar desktop gồm **Cơ sở của tôi**, **Đơn đặt sân** và **Thống kê**; Facility configuration tiếp tục nằm trong Facility context. Nested Facility/Court routes giữ mục Facility active, Booking Detail giữ mục Booking active, Analytics giữ mục Thống kê active và active state có `aria-current` ngoài tín hiệu màu.
+
+Workspace dùng chiều rộng `--container-workspace`, nền/surface/border/spacing/radius/focus từ `tokens.css`. Từ 900px trở xuống sidebar thành navigation ba mục theo hàng ngang; mobile 375–430px giữ vùng bấm tối thiểu 44px, account/logout truy cập được và không tạo horizontal page overflow. Analytics không redesign nội dung Facility/Booking, không đổi API/DTO/business state hoặc reliability behavior. Các PNG giao dịch approved tiếp tục binding cho cancellation/refund.
+
 ## Refund Booking Detail — implemented 2026-10-10
 
 Hai reference hiện hành là `owner-booking-refund-desktop.png` tại `/owner/bookings/:booking_id` và `customer-booking-refund-desktop.png` tại `/bookings/:booking_id`. Refund nằm trong Booking Detail; không có Refund Center hoặc route frontend riêng.
@@ -30,7 +135,7 @@ Customer chọn một JPEG/PNG hợp lệ để xem preview cục bộ, có th�
 
 ## Stabilization Phase 4 — 2026-10-07
 
-Frontend hiện có Auth, Home, Facility List/Detail, Availability, Customer Booking/Payment, Owner Booking review, Owner Facility/Court/Pricing/Bank Account + QR/Cancellation Policy/Images + Amenities và Admin Facility approval. Nhãn trạng thái Booking/Facility dùng nguồn theo domain; modal mutation dùng `AccessibleModal`; Auth/API/Owner layout và formatter hiện có tiếp tục dùng chung. Owner Request và các module deferred chưa được giả lập bằng UI. Bộ Owner Facility reference hiện hành gồm bảy PNG được đăng ký trong `docs/ui-reference/README.md`.
+Frontend hiện có Auth, Home, Facility List/Detail, Availability, Customer Booking/Payment, Owner Booking review, Owner Facility/Court/Pricing/Bank Account + QR/Cancellation Policy/Images + Amenities, Owner Request Customer/Admin, Admin Facility approval và Admin Amenity Catalog. Nhãn trạng thái Booking/Facility dùng nguồn theo domain; modal mutation dùng `AccessibleModal`; Auth/API/Owner layout và formatter hiện có tiếp tục dùng chung. Các module còn deferred không được giả lập bằng UI. Bộ Owner Facility reference hiện hành gồm bảy PNG được đăng ký trong `docs/ui-reference/README.md`.
 
 ## Stabilization Phase 3 — 2026-10-07
 
@@ -43,7 +148,7 @@ Các trạng thái loading/error/empty và `INVALID_RESPONSE` từ Phase 2 giữ
 ## Stabilization Phase 2 — 2026-10-07
 
 - Success response sai shape bắt buộc được hiển thị như lỗi tải dữ liệu có thể retry; không được biến `data: null`, object thay cho array hoặc nested collection sai thành empty state hay làm crash React tree.
-- Guest bị guard từ protected route được chuyển tới Login với destination trong Router state. Sau login chỉ restore path nội bộ bắt đầu bằng `/`; URL ngoài, protocol-relative, scheme khác hoặc path chứa backslash đều fallback `/`. Capability guard tại destination vẫn quyết định quyền truy cập và destination không lưu trong browser storage.
+- Guest bị guard từ protected route được chuyển tới Login với destination trong Router state. Sau login frontend đồng bộ `GET /auth/session`, chỉ restore route public/collection phù hợp capability của tài khoản mới; URL resource-scoped cần ownership không được phục hồi giữa tài khoản. URL ngoài, protocol-relative, scheme khác hoặc path chứa backslash đều bị loại. Fallback theo capability: ADMIN `/admin/facilities`, OWNER `/owner/facilities`, CUSTOMER `/`. Logout thay route bằng `/login`, xóa Router state và session/capability cũ; destination không lưu trong browser storage.
 - Auth guard chờ session bootstrap. Authenticated User vào `/login`, `/register` hoặc `/forgot-password` được chuyển về safe destination hoặc `/`. `/reset-password` không dùng GuestOnly vì token reset là luồng độc lập; token fragment và các quy tắc bảo mật hiện có được giữ nguyên.
 
 ## Stabilization Phase 1 — 2026-10-07
@@ -58,14 +163,14 @@ Các trạng thái loading/error/empty và `INVALID_RESPONSE` từ Phase 2 giữ
 - Owner Facility Detail dùng reference Owner đã duyệt: `DRAFT` có action **Gửi duyệt** qua bước xác nhận; `PENDING` chỉ đọc core và hiển thị đang chờ duyệt; `REJECTED` hiển thị lý do và cho đi đến Edit. Frontend không tự chuyển trạng thái, luôn refetch sau mutation.
 - Admin dùng hai route `/admin/facilities` và `/admin/facilities/:facility_id`, chỉ cho capability `ADMIN`. List có status filter, pagination và bốn state loading/error/empty/data. Detail chỉ hiển thị Facility core cùng Owner tối thiểu từ DTO.
 - Action theo server state: `PENDING` approve/reject; `ACTIVE` suspend; `SUSPENDED` activate; `DRAFT` và `REJECTED` chỉ đọc. Reject/suspend dùng reason trim 1–500; approve/activate có confirmation. Mutation không optimistic, chống submit lặp và refetch khi 409 hoặc kết quả không xác định.
-- Visual theo sáu Admin Facility PNG approved trong `docs/ui-reference/`. Desktop dùng bảng/detail hai cột; tablet xếp detail một cột và cho bảng cuộn trong vùng chứa; mobile xếp card/form/modal một cột, không thêm Admin Dashboard hoặc module ngoài scope.
+- Visual theo sáu Admin Facility PNG approved trong `docs/ui-reference/`. Desktop dùng bảng/detail hai cột; dưới breakpoint 900px list chuyển từng hàng thành card có nhãn và detail xếp một cột; mobile tiếp tục card/form/modal một cột, không thêm Admin Dashboard hoặc module ngoài scope.
 - Header hiển thị entry **Quản lý cơ sở** tới `/admin/facilities` chỉ khi session có capability `ADMIN`; link giữ active state ở cả list và detail. Customer/Owner không có `ADMIN` không thấy entry này, các navigation theo capability khác được giữ nguyên.
 
 ## Owner Facility navigation và references hiện hành — 2026-10-08
 
-Sidebar Owner cấp cao chỉ tập trung vào **Cơ sở của tôi** và **Đơn đặt sân**. Các cấu hình thuộc một Facility không phải menu Owner toàn cục. Facility Detail là hub điều hướng đến: Thông tin cơ sở, Hình ảnh & tiện ích, Quản lý sân, Bảng giá, Chính sách hủy và Tài khoản nhận cọc. Mỗi màn hình phải giữ rõ Facility đang thao tác; cross-owner vẫn trả 404 từ backend.
+Sidebar Owner cấp cao chỉ tập trung vào **Cơ sở của tôi**, **Đơn đặt sân** và **Thống kê**. Các cấu hình thuộc một Facility không phải menu Owner toàn cục. Facility Detail là hub điều hướng đến: Thông tin cơ sở, Hình ảnh & tiện ích, Quản lý sân, Bảng giá, Chính sách hủy và Tài khoản nhận cọc. Mỗi màn hình phải giữ rõ Facility đang thao tác; cross-owner vẫn trả 404 từ backend.
 
-Sidebar cũ còn xuất hiện trong `owner-facility-list-desktop.png` và `owner-booking-list-desktop.png` chỉ là phần visual lịch sử và không còn quyết định navigation. Nội dung chính của hai PNG vẫn được dùng; sidebar implementation phải theo quy tắc hai mục cấp cao.
+Sidebar cũ còn xuất hiện trong `owner-facility-list-desktop.png` và `owner-booking-list-desktop.png` chỉ là phần visual lịch sử và không còn quyết định navigation. Nội dung chính của hai PNG vẫn được dùng; sidebar implementation phải theo ba mục cấp cao hiện hành.
 
 Bảy reference CURRENT/APPROVED là `owner-facility-list-desktop.png`, `owner-facility-detail-desktop.png`, `owner-facility-images-amenities-desktop.png`, `owner-court-list-desktop.png`, `owner-price-configuration-desktop.png`, `owner-cancellation-policy-desktop.png` và `owner-bank-account-desktop.png`. `owner-booking-list-desktop.png` tiếp tục là reference hiện hành cho danh sách booking Owner. PNG quyết định visual; API/spec/source quyết định feature đã sẵn sàng, validation, state, ownership và security.
 
@@ -89,7 +194,7 @@ Owner Booking/Payment hiển thị nhãn thân thiện cho cả BookingStatus v�
 
 Reference `ui-reference/payment-pending-desktop.png` đã mở và đọc được. `/bookings/:id/payment` dùng CUSTOMER guard/session và ownership qua Detail; chỉ PENDING_PAYMENT còn hạn có form. State khác về Detail; không tồn tại/ngoài quyền404. Countdown expires_at/server_time + elapsed monotonic, zero/focus GET. Background focus refresh không làm mất snapshot đã xác minh; lỗi sync/unknown khóa submit, không local EXPIRED. PENDING_CONFIRMATION không countdown/auto-expire/cancel.
 
-Bank/name/account/amount/QR dùng snapshot Detail, nội dung `BOOKING <booking_id>` frontend derive; không mã BK. QR null dùng fallback “QR thanh toán chưa khả dụng. Vui lòng chuyển khoản bằng thông tin bên cạnh.” Không support phone/contact/social/notification mẫu. Giữ layout/card/màu theo PNG; mobile/tablet wrap/xếp dọc, tái sử dụng Header/Footer/Auth/API.
+Bank/name/account/amount/QR dùng snapshot Detail. Booking V1 giữ nội dung tương thích `BOOKING <booking_id>` do frontend derive; Booking V2 hiển thị `CLDN <BOOKING_ID>` đúng giá trị backend trả. QR null dùng fallback “QR thanh toán chưa khả dụng. Vui lòng chuyển khoản bằng thông tin bên cạnh.” Không support phone/contact/social/notification mẫu. Giữ layout/card/màu theo PNG; mobile/tablet wrap/xếp dọc, tái sử dụng Header/Footer/Auth/API.
 
 Chọn một JPEG/PNG <=5,000,000bytes, <=25,000,000pixels, ảnh tĩnh; frontend hỗ trợ kiểm tra/preview, backend validate đầy đủ. Idle/selected/uploading/loading/error/expired/success/unknown riêng; nút thiếu file/đang gửi/chưa xác minh state bị disabled. FormData không JSON.stringify hoặc tự Content-Type; credentials/CSRF giữ nguyên. Không auto retry POST. Unknown GET Detail: PENDING_CONFIRMATION đã nhận, PENDING_PAYMENT còn hạn chỉ chủ động thử lại sau sync, terminal không retry, GET lỗi khóa submit.201 về Detail “Chờ chủ sân xác nhận”. HISTORICAL/SUPERSEDED — tại phase UI này GET proof/Owner review/Refund còn ngoài scope. Hiện Customer GET proof, Owner review và Refund workflow đã triển khai.
 
@@ -102,6 +207,12 @@ Theo [BOOKING_FRONTEND_SPEC.md](specs/BOOKING_FRONTEND_SPEC.md): selection React
 ## Home Phase 1 — implementation 2026-10-05
 
 `/` đã thay scaffold bằng Home theo PNG và các ngoại lệ approved. Shared PublicLayout/Auth/API/FacilityCard/registry generated; active navigation theo route, Home card4/2/1 cột, district tới List và card tới Detail. Static copy không số liệu/feature giả, Owner CTA không gửi request, ngày/giờ disabled có giải thích. Tests53/53/lint/build PASS; xem FEATURE_STATUS. Những ghi nhận Home chưa triển khai trong phần review cũ là lịch sử, Booking frontend vẫn chưa có.
+
+### Public Home Facility Showcase redesign — 2026-10-17
+
+Section Facility trên Home dùng variant discovery riêng của shared `FacilityCard`: ảnh 3:2 là visual focus, tên tối đa hai dòng, district/address là location hierarchy, tối đa ba amenity chip và số còn lại lấy trực tiếp từ list DTO. CTA **Xem sân** dẫn tới Facility Detail; **Xem tất cả** dẫn `/facilities`. Giá không xuất hiện vì public list DTO hiện không có authoritative price summary. Search variant giữ `matching_courts`, URL context và CTA **Xem chi tiết**; không có detail fetch theo card.
+
+Grid hiện hành là 4 cột ở desktop rộng, 2 cột tablet và 1 cột mobile. Skeleton giữ gần kích thước card thật; empty/error/retry nằm trong section và không làm Home crash. Ảnh đầu dùng eager/high priority, ảnh sau lazy; cover lỗi/thiếu dùng fallback nội bộ, không remote image giả. Focus, touch target, reduced motion, text status và overflow được giữ. Screenshot `home-facilities-{desktop,tablet,mobile}.png` là `REVIEW CANDIDATE`, chưa tự động APPROVED.
 
 ## Facility Detail + Availability — implementation 2026-10-05
 
@@ -178,7 +289,7 @@ Google-only hiển thị “Tiếp tục đăng nhập bằng Google”, không 
 
 ## Đăng ký trở thành chủ sân
 
-Owner Request frontend dùng route độc lập `/owner-request`, yêu cầu session hợp lệ và capability `CUSTOMER`; không xây Profile frontend đầy đủ chỉ để chứa feature này. CTA “Dành cho chủ sân”/“Đăng ký trở thành chủ sân” ở Home dẫn tới route thật. Approved Owner vẫn có quyền Customer nhưng không được gửi request mới. Ba Customer PNG và hai Admin PNG CURRENT/APPROVED được đăng ký tại `docs/ui-reference/README.md`.
+Owner Request frontend dùng route độc lập `/owner-request`, yêu cầu session hợp lệ và capability `CUSTOMER`. Shared `/profile` và Personal Account Center hiện đã tồn tại; Owner Request liên kết tới Profile để người dùng chỉnh thông tin hiện hành trước khi gửi, nhưng request đã gửi tiếp tục giữ snapshot bất biến. CTA “Dành cho chủ sân”/“Đăng ký trở thành chủ sân” ở Home dẫn tới route thật. Approved Owner vẫn có quyền Customer nhưng không được gửi request mới. Ba Customer PNG và hai Admin PNG CURRENT/APPROVED được đăng ký tại `docs/ui-reference/README.md`.
 
 Customer ACTIVE chưa được duyệt Owner thấy thông tin tài khoản hiện có và nút “Gửi yêu cầu”; body tạo rỗng, backend chụp hồ sơ. Không tự thêm form giấy tờ hoặc biến phone nullable thành bắt buộc. Không có request thì hiện create state. Có `PENDING` thì hiện request hiện hành và history, không cho submit lần hai. Latest `REJECTED` mà không có `PENDING` phải hiện lý do và cho tạo record mới, không sửa/xóa record cũ. `APPROVED` hiện trạng thái đã duyệt; Owner capability chỉ có sau khi đăng nhập lại vì backend revoke session applicant trong transaction.
 
@@ -187,6 +298,8 @@ Dùng POST /users/me/owner-requests, GET /users/me/owner-requests và GET /users
 Có PENDING thì khóa nút gửi thêm; response 409 `REQUEST_ALREADY_PENDING` phải refetch lịch sử. `ALREADY_OWNER` phải refresh session/đưa User tới khu vực Owner phù hợp, không gửi lại mutation. Sau approval, request tiếp theo bằng session cũ có thể nhận 401; dùng auth flow hiện tại, không render snapshot stale như còn actionable và không giả định capability hot-update. Sau đăng nhập lại, session trả `CUSTOMER + OWNER`; User vẫn truy cập đầy đủ khu vực Customer.
 
 Admin dùng `/admin/owner-requests` và `/admin/owner-requests/:request_id` trong navigation Admin shared gồm **Quản lý cơ sở**, **Yêu cầu chủ sân** và **Tiện ích**. List có loading/error/empty/data, filter `PENDING/APPROVED/REJECTED`, pagination và URL state phù hợp. Detail hiện snapshot applicant và metadata; phone nullable có fallback. Chỉ `PENDING` có Approve/Reject; trạng thái kết thúc chỉ đọc. Approve cần confirmation; Reject dùng `AccessibleModal`, reason trim 1–500 ký tự. Chống double submit; 409 `INVALID_REQUEST_STATE` hoặc kết quả không chắc chắn phải refetch authoritative state, không optimistic transition. Duyệt một request không tự duyệt/tạo Facility.
+
+Admin Owner Request List dùng hierarchy **Quản lý tài khoản → Yêu cầu chủ sân → Tất cả yêu cầu**, hiển thị `meta.total` của query hiện hành mà không suy diễn analytics. Desktop dùng semantic table thật; tablet/mobile dùng semantic list/card và ẩn hoàn toàn biến thể desktop khỏi accessibility tree. Filter expose `aria-pressed`, giữ URL state và reset page khi đổi trạng thái. Mỗi record chỉ dùng snapshot DTO (`applicant_name_snapshot`, email, phone nullable, request ID, created_at, status); không gọi Profile/User/OwnerProfile và không đặt Approve/Reject ở List. Initial load dùng skeleton ổn định; protected snapshot được giữ khi background revalidation hoặc refresh lỗi.
 
 Response validators phải kiểm tra exact Owner Request DTO: ID string dương; status whitelist; phone/reviewer/reviewed_at/rejection_reason nullable theo state; timestamp hợp lệ; list meta có page/page_size/total/server_time. Customer list/detail/create, Admin list/detail/approve/reject đều phải reject malformed 2xx thành `INVALID_RESPONSE`, không render như empty hoặc dữ liệu hợp lệ. Approve response còn kiểm tra User giữ role `CUSTOMER` và có capabilities `CUSTOMER`, `OWNER`.
 
@@ -204,7 +317,7 @@ Test implementation tối thiểu: Customer no-request/create, submit success/do
 | Favorite | Danh sách đã lưu, bỏ yêu thích; cơ sở ngừng public ghi không khả dụng | GET/PUT/DELETE /favorites |
 | Review | Form rating 1–5/comment cho booking COMPLETED, danh sách review đã viết; ảnh P3 | POST /reviews, GET /reviews/mine, POST /reviews/{id}/images |
 | Notification | Đọc/chưa đọc, số chưa đọc, mở tài nguyên theo quyền, đánh dấu tất cả | GET /notifications, PATCH read, POST read-all |
-| Profile | Họ tên, email, SĐT, avatar, đổi mật khẩu; frontend đầy đủ còn ngoài phase Owner Request | GET/PATCH /users/me, avatar, auth/change-password |
+| Profile | Shared `/profile`: sửa họ tên/SĐT, email và capabilities chỉ đọc; avatar/change-password UI deferred | GET/PATCH /users/me |
 | Owner Request | Route độc lập `/owner-request`: gửi yêu cầu, trạng thái hiện hành và lịch sử | /users/me/owner-requests |
 
 Customer có nút hủy cho PENDING_PAYMENT còn hạn; CONFIRMED chỉ trước cutoff theo snapshot. PENDING_CONFIRMATION không có nút Customer Cancel, không countdown 5 phút, không tự expire; hiển thị chờ Owner Confirm hoặc Reject. Đúng cutoff hoặc state kết thúc không được hủy. Hiển thị policy và thời điểm hạn hủy. Thiếu snapshot cutoff ở CONFIRMED hiển thị không đủ thông tin chính sách, không tự dùng X mặc định. Không có nút chuyển tiền hoàn tự động. REJECTED hiển thị lý do và lối “Chọn lịch để đặt lại”, không nút gửi lại proof vào booking cũ.
@@ -230,7 +343,7 @@ Implementation Frontend Phase 1 hoàn tất ngày 2026-10-06. Navigation ngoài 
 | Statistics | TODO chốt chỉ số/công thức; không biểu đồ hoặc doanh thu giả | /owner/statistics reserved |
 | Bank Account | Nằm trong Facility Detail, ngân hàng/số tài khoản/chủ tài khoản/QR; nhắc booking cũ dùng snapshot; cọc 30% chỉ đọc | bank-account, bank-account/qr |
 | Notifications | Inbox cá nhân | /notifications |
-| Settings | Không dùng làm menu chứa cấu hình Facility; profile/đổi mật khẩu là account-scoped và còn deferred | /users/me, /auth/change-password |
+| Settings | Không dùng làm menu chứa cấu hình Facility; shared `/profile` đã có, Change Password UI/full settings deferred | /users/me, /auth/change-password |
 
 Phase 1 khóa chỉnh sửa hồ sơ core ở PENDING/ACTIVE/SUSPENDED; DRAFT/REJECTED được sửa core. Backend, Owner frontend ảnh/tiện ích và Admin Amenity catalog frontend đã hoàn tất ở Facility Presentation. Trang ảnh/tiện ích nằm trong Facility Detail hub, dùng dữ liệu API thật, PENDING chỉ đọc và không tự làm mất assignment inactive. Backend vẫn là authority cho ownership, validation và trạng thái.
 
@@ -241,6 +354,8 @@ Phase 1 khóa chỉnh sửa hồ sơ core ở PENDING/ACTIVE/SUSPENDED; DRAFT/RE
 Route `/admin/amenities` dùng reference `admin-amenity-catalog-desktop.png`. Navigation Admin gồm **Quản lý cơ sở**, **Yêu cầu chủ sân** và **Tiện ích**; tab Tiện ích active tại route này. Màn hình dùng API thật để hiển thị cả Amenity `ACTIVE`/`INACTIVE`, phân trang, tạo mới, đổi tên, deactivate và reactivate. Không có hard delete, search hoặc status filter trong phase này. Các mutation dùng `AccessibleModal`/shared Admin pattern, chống submit lặp và tuân Origin/CSRF; backend vẫn quyết định validation và trạng thái cuối cùng.
 
 Dữ liệu, số dòng, ID, ngày tạo và số trang trong PNG chỉ mô tả presentation. Không hard-code hoặc suy ra `page_size`, total, seed, Amenity bắt buộc hay business default. Frontend đã triển khai strict response validation, loading/error/empty/data, pagination theo metadata thật và modal accessible; kiểm chứng ngày 2026-10-09 được ghi tại `docs/FEATURE_STATUS.md`.
+
+Admin reliability state dùng cùng quy ước trên Facility, Owner Request và Amenity: initial load chưa có snapshot mới dùng blocking loading/error; background refresh giữ nội dung gần nhất cùng status/warning có retry. Kết quả mutation không chắc chắn hoặc malformed 2xx phải refetch authoritative resource, không optimistic transition và không tự retry mutation. Khi recovery read thất bại, warning `role=alert` giữ nguyên snapshot và khóa action mutation cho đến khi một read mới xác minh được trạng thái.
 
 | Màn hình | Nội dung / hành động | API chính |
 | --- | --- | --- |
@@ -306,11 +421,18 @@ Trước tạo booking hiển thị giá dự kiến; sau tạo luôn dùng snap
 
 Khi đồng hồ chạm 0, khóa gửi proof ở UI và đọc lại booking. Không tự gán EXPIRED ở frontend; response server quyết định, nhất là trường hợp proof vừa được chấp nhận. Upload đang chạy không gia hạn. Gửi thành công chuyển giao diện chờ Owner, dừng countdown 5 phút; chưa hiện thành công đặt sân cho đến CONFIRMED.
 
-Thông tin chuyển khoản: bank name/account number/account holder/cọc30% và QR URL từ Booking snapshot, nội dung `BOOKING <booking_id>`. QR null dùng fallback; không contact/support phone vì DTO chưa có. Ảnh proof có preview, validation và trạng thái upload; disable submit khi request đang chạy hoặc state chưa xác minh, không gửi trùng do double click.
+Thông tin chuyển khoản V1: bank name/account number/account holder/cọc30% và QR URL từ Booking snapshot, nội dung tương thích `BOOKING <booking_id>`. QR null dùng fallback; không contact/support phone vì DTO chưa có. Ảnh proof V1 có preview, validation và trạng thái upload; disable submit khi request đang chạy hoặc state chưa xác minh, không gửi trùng do double click. V2 dùng `CLDN <BOOKING_ID>` từ DTO và không có proof UI.
 
 REJECTED/EXPIRED: nêu rõ lý do/hết hạn, không hứa giữ lại slot; quay lại lịch để tạo booking mới, không upload lại proof booking cũ. Khoản đã chuyển nhưng chưa được Owner xác nhận cần hai bên đối soát ngoài hệ thống; không tạo Refund như khoản cọc đã APPROVED. Hủy CONFIRMED hợp lệ có Refund được theo dõi riêng bên dưới.
 
 ## Cancellation UI
+### Owner Booking `CONFIRMED` — approved reference 2026-10-11
+
+`owner-booking-confirmed-cancellation-desktop.png` là reference `CURRENT/APPROVED` cho `/owner/bookings/:booking_id` khi Booking `CONFIRMED` và cọc đã được xác nhận. Detail dùng dữ liệu API thật và chỉ hiện action **Hủy đặt sân** khi server state cho phép; click action mở shared `AccessibleModal`, không mutation ngay. Modal hiển thị `deposit_amount` cần hoàn chỉ đọc, reason bắt buộc sau trim dài 1–500 ký tự Unicode, character counter, **Quay lại** và destructive action **Xác nhận hủy**. Owner không được sửa refund amount, gửi actor/status/amount hoặc bị áp Customer cancellation cutoff.
+
+Mutation phải chống submit lặp, không optimistic transition và giữ input/lỗi trong modal phù hợp. Sau success, 409 hoặc kết quả không xác định, frontend refetch authoritative Owner Booking Detail. Success chuyển presentation sang Booking `CANCELLED` và tái sử dụng Refund panel theo `owner-booking-refund-desktop.png` với Refund `PENDING`; không tạo Refund Center hoặc route Refund riêng. Lỗi/malformed response phải fail closed. Modal giữ focus, Escape/backdrop theo `AccessibleModal` hiện hành và khóa đóng khi mutation đang chạy.
+
+Tên/ID/liên hệ/ngày giờ/số tiền/notification trong PNG là presentation data. Backend/spec quyết định ownership, PaymentProof `APPROVED`, `cancelled_by=OWNER`, Refund amount bằng `deposit_amount`, transaction/lock và error contract. Backend và frontend Owner cancellation đã triển khai ngày 2026-10-11; UI dùng exact response validation, authoritative refetch và `OwnerRefundPanel` hiện hành.
 
 ### Customer Booking `CONFIRMED` — approved reference 2026-10-10
 
@@ -397,3 +519,26 @@ Theo specs/AVAILABILITY_SPEC.md: chỉ đọc hôm nay/tương lai, ngày quá k
 Sáu ảnh docs/ui-reference/auth-*.png là visual chuẩn cho Auth F1, thay TODO bàn giao Figma riêng cho bốn route Auth này. Font system-ui, branding dựng icon + “Cầu Lông ĐN” theo quyết định người dùng. Không áp quyết định này cho các màn hình nghiệp vụ khác.
 
 Đã triển khai /login, /register, /forgot-password và /reset-password. Ngoại lệ PNG đã duyệt: ẩn Google, bỏ phone và chỉ dùng field backend ở Register, policy8–128 có chữ/số, Forgot Sent dùng thông báo có điều kiện không xác nhận delivery. Forgot Sent/Reset Success là state cùng route. Loading/error inline và chống submit lặp. Login thành công về /; Register không auto-login, về Login kèm thông báo; Reset success có nút Login. Không frontend Change Password/Home/Public/Availability/Booking. Chi tiết kiểm chứng tại FEATURE_STATUS.
+
+## Frontend read reliability baseline — 2026-10-11
+
+- Initial loading chỉ dùng khi chưa có snapshot hợp lệ. Background refetch giữ nguyên snapshot, hiển thị trạng thái cập nhật nhẹ; lỗi refresh giữ nội dung gần nhất và cung cấp retry khi phù hợp.
+- Với Customer Booking Detail, authoritative refetch đã validate cho đúng booking và request generation hiện tại sẽ giải quyết warning stale/unverified cùng unknown-result liên quan request trước. Refetch thất bại hoặc response sai booking/sai contract tiếp tục giữ snapshot gần nhất và warning/protection phù hợp.
+- Booking `CANCELLED` đã xác minh được trình bày bằng status badge, cancellation metadata và Refund panel khi có; không lặp lại trạng thái này trong danger/error state surface. Alert màu lỗi chỉ dành cho lỗi hoặc uncertainty thực sự chưa được giải quyết.
+- Request bị hủy do unmount/đổi resource không hiển thị như lỗi mạng. Timeout, lỗi kết nối, lỗi API và response không hợp lệ có thông điệp riêng, không lộ chi tiết nội bộ.
+- Ảnh PaymentProof/Refund proof riêng tư dùng signed URL ngắn hạn. Frontend tính thời điểm hết hạn từ `server_time` cộng thời gian monotonic đã trôi qua, tự xin URL mới khi hết hạn hoặc lần đầu ảnh tải lỗi; lần lỗi kế tiếp dừng tự động và hiển thị fallback có nút thử lại.
+- Không lưu signed URL, token hoặc session trong browser storage; không hiển thị storage identifier hay URL trong error UI.
+## Booking V2 Customer deposit instructions — 2026-10-15
+
+Sau create V2, Customer được điều hướng đến `/bookings/:id/payment`. Trang dùng một GET Booking Detail và phân nhánh bằng `booking_flow_version`: V2 `PENDING_CONFIRMATION` hiển thị trạng thái chờ Owner, countdown server-time, booking/cost snapshots, bank/QR snapshot, nội dung `CLDN <id>`, copy controls và hướng dẫn không cần upload ảnh. V2 `EXPIRED` bỏ toàn bộ pending instructions và cung cấp lối quay lại Facility/Booking; V2 `CONFIRMED` chỉ nói Owner đã xác nhận, không khẳng định thanh toán online. Countdown về 0 refetch authoritative state; tab focus/remount giữ AbortController, generation guard và snapshot conventions hiện hành. V1 UI không đổi.
+
+## Owner Booking V2 quick actions — 2026-10-16
+`/owner/bookings` hiển thị tiền cọc, `CLDN <BOOKING_ID>`, deadline/countdown và quick Confirm/Reject cho riêng V2 `PENDING_CONFIRMATION` còn hạn. Một shared tick phục vụ list; về 0 chỉ trigger authoritative refetch. Cả list và detail dùng AccessibleModal, synchronous mutation lock, không optimistic/auto-retry; 409 hoặc kết quả chưa rõ phải refetch. V1 PaymentProof actions giữ nguyên.
+## Recurring Booking Phase 4 — current UI
+
+- Public Facility Search có hai mode rõ bằng `aria-pressed`: **Đặt sân một lần** và **Đặt lịch cố định**. Recurring form dùng district registry, ISO weekday, start/end date và 30-minute time options; empty state giải thích strict all-occurrence semantics.
+- Recurring result giữ Facility card whitelist, matching Courts và occurrence count; không hiển thị quote/rating/availability giả. Mỗi matching Court có action riêng.
+- Customer confirmation, `/booking-series` và `/booking-series/:series_id` dùng Public/Booking shell hiện hành. Owner Series routes dùng Owner workspace shell, với tab **Đơn đặt sân / Lịch cố định**.
+- Owner list dùng responsive Series rows và quick confirm/reject; detail dùng ordered occurrences. Modal tái sử dụng `AccessibleModal`.
+- 1440/768/390 layouts không horizontal overflow; status luôn có text, focus/touch target và reduced-motion giữ theo tokens hiện hành.
+- `recurring-search-desktop.png`, `recurring-search-results-desktop.png`, `recurring-search-results-mobile.png` là generated screenshot candidates, chưa APPROVED.

@@ -1,5 +1,34 @@
 # REST API Specification
 
+## Operational health endpoints
+
+| Method / path | Access | Meaning |
+| --- | --- | --- |
+| GET `/health` | Public | Process liveness only; does not query PostgreSQL. |
+| GET `/ready` | Public | Bounded lightweight PostgreSQL readiness check; returns 200 when the application can serve database-backed traffic and a generic 503 `SERVICE_UNAVAILABLE` otherwise. |
+
+These endpoints use the normal `/api/v1` prefix. Readiness never returns database connection details or raw dependency errors.
+
+## Recurring occurrence cancellation — implemented backend
+
+`POST /api/v1/booking-series/{series_id}/occurrences/{booking_id}/cancel` dành cho ACTIVE CUSTOMER sở hữu Series/child; mutation yêu cầu Origin + CSRF. Body là `{}` hoặc `{ "reason": string }`, trim và tối đa 500 Unicode code points. Cả hai ID phải khớp một recurring V2 child; mismatch/cross-customer trả 404.
+
+Chỉ child `CONFIRMED` của Series `CONFIRMED`, trước cutoff snapshot theo DB time, được hủy. Thành công chỉ chuyển child sang `CANCELLED`, nhả locks của child, giữ BookingSlots và tạo Refund `PENDING` bằng child deposit snapshot; Series/sibling không đổi. Response dùng cancellation/refund whitelist hiện hành. Backend luôn recheck dù read DTO báo `can_cancel`. Xem `docs/specs/RECURRING_CANCELLATION_REFUND_SPEC.md`. Backend đã implement; Customer UI thuộc Phase 5C.
+
+## Recurring Search / Booking — backend implemented through Phase 3
+
+`GET /api/v1/facilities/recurring-search` dùng contract Phase 2: query bắt buộc `weekday=1..7` (ISO Monday..Sunday), `start_date`, `end_date`, `start_time`, `end_time`; `q`, `district`, `page`, `page_size` optional. Range inclusive tối đa 93 ngày, tối đa 14 occurrences, 1–6 slot 30 phút. Response dùng public Facility whitelist, `matching_courts`, pagination và `meta.occurrence_count`; chỉ trả Court trống và có đúng một PriceRule cho mọi occurrence.
+
+| Method / path | Role | Contract chính |
+| --- | --- | --- |
+| POST `/bookings/recurring` | CUSTOMER | Strict intent body; backend re-expand/recheck và atomically tạo Series + V2 children + slots + locks; trả 201 aggregate/occurrence DTO, signed bank/QR display và `CLDNS <SERIES_ID>` |
+| GET `/booking-series` và `/{id}` | CUSTOMER | Chỉ Series của chính Customer; list pagination/status, detail lazy expiry và ordered occurrences |
+| GET `/owner/booking-series` và `/{id}` | OWNER | Chỉ Series thuộc Facility của Owner; list aggregate không N+1, detail lazy expiry |
+| POST `/owner/booking-series/{id}/confirm` | OWNER | Body rỗng, Origin/CSRF; pending trước deadline → Series và children CONFIRMED, giữ locks |
+| POST `/owner/booking-series/{id}/reject` | OWNER | `{rejection_reason}` trim 1–500, Origin/CSRF; Series và children REJECTED, giữ history và nhả locks |
+
+Exact deadline `now >= confirmation_expires_at` chuyển Series/children còn pending sang EXPIRED và nhả locks. Một conflict trả `SLOT_UNAVAILABLE` và rollback toàn bộ. PaymentProof cho recurring child fail closed; frontend/cancellation/refund recurring vẫn deferred.
+
 ## Refund processing — implemented 2026-10-10
 
 Refund UI nằm trong Booking Detail, nhưng mutation/read proof dùng `refund_id` theo contract hiện có. Không có frontend Refund Center và các list `/refunds`, `/owner/refunds` tiếp tục deferred. Booking Detail Customer/Owner phải trả `refund: null` hoặc summary whitelist gồm `id`, `booking_id`, `amount`, `status`, `reason`, `requested_at`, `proof_submitted_at`, `confirmed_at`, `refunded_at`; không trả storage path.
@@ -67,8 +96,8 @@ Email reset là ngoại lệ auth; notification booking/payment/refund không g�
 
 | Method / path | Role | Request | Response chính | Lỗi chính |
 | --- | --- | --- | --- | --- |
-| GET /users/me | U | Không | Hồ sơ full_name/email/phone/avatar/role/capabilities/has_local_password | Lỗi chung |
-| PATCH /users/me | U | full_name?, phone? | Hồ sơ cập nhật | 422 nếu email/role/status hoặc field chưa cho phép |
+| GET /users/me | U | Không | DTO whitelist id/full_name/email/phone/capabilities/has_local_password | 401 SESSION_EXPIRED |
+| PATCH /users/me | U | full_name? và/hoặc phone? | Cùng DTO whitelist đã cập nhật | 401; 403 Origin/CSRF; 422 field/value không hợp lệ |
 | POST /users/me/avatar | U | multipart image | avatar_url | 413 file lớn; 415 định dạng |
 | POST /users/me/owner-requests | C chưa có O | Body rỗng hoặc {} | 201 request PENDING với snapshot hồ sơ server | 409 REQUEST_ALREADY_PENDING / ALREADY_OWNER; 422 field ngoài scope |
 | GET /users/me/owner-requests | C (gồm O) | page, page_size | Lịch sử yêu cầu của mình + status/rejection_reason | Lỗi chung |
@@ -79,7 +108,9 @@ Không có endpoint client tự đổi role/capabilities hoặc đăng ký Admin
 
 ### Create / View Owner Request
 
-POST /users/me/owner-requests nhận body rỗng; không nhận user_id/status/role. Server khóa User, kiểm tra ACTIVE, Customer capability và chưa có OwnerProfile; chụp full_name/email/phone từ hồ sơ hiện có. Insert PENDING, partial UNIQUE(user_id) WHERE status = 'PENDING' bảo đảm một PENDING/user. Đây là contract MVP dùng hồ sơ sẵn có, không yêu cầu giấy tờ chưa đặc tả.
+GET/PATCH `/users/me` yêu cầu session User ACTIVE và trả đúng `id`, `full_name`, `email`, `phone`, `capabilities`, `has_local_password`. PATCH chỉ nhận tập con không rỗng của `full_name`, `phone`: tên trim 1–150 Unicode code points; phone nullable, trim, tối đa 30, chuỗi rỗng thành `null`. Email/ID/role/capabilities/status/avatar/password/timestamps và field lạ bị từ chối 422. PATCH lấy User ID từ session, khóa User, recheck session/state và yêu cầu Origin + CSRF; không revoke session vì không đổi login identity.
+
+POST /users/me/owner-requests nhận body rỗng; không nhận user_id/status/role. Server khóa User, kiểm tra ACTIVE, Customer capability và chưa có OwnerProfile; chụp full_name/email/phone từ hồ sơ hiện có. Insert PENDING, partial UNIQUE(user_id) WHERE status = 'PENDING' bảo đảm một PENDING/user. Snapshot không đổi khi Profile được sửa sau đó. Đây là contract MVP dùng hồ sơ sẵn có, không yêu cầu giấy tờ chưa đặc tả.
 
 Response 201: id, user_id, status=PENDING, applicant_name_snapshot, applicant_email_snapshot, applicant_phone_snapshot, created_at; reviewed_at/rejection_reason ban đầu null. GET list/detail trả các trường này và quyết định/rejection_reason khi đã duyệt. Request REJECTED giữ lịch sử, Customer tạo mới bằng POST với id mới; không sửa record cũ về PENDING. Hai request tạo đồng thời: một thành công, còn lại 409 REQUEST_ALREADY_PENDING. Đã Approved Owner: 409 ALREADY_OWNER.
 
@@ -95,13 +126,13 @@ Bảng và mô tả dưới đây chỉ là thiết kế tổng thể tương la
 
 | Method / path | Role | Request | Response chính | Lỗi chính |
 | --- | --- | --- | --- | --- |
-| GET /facilities | P | q, district, date?, start_time?, end_time?, min_price?, max_price?, min_rating?, amenity_ids?, sort?, page, page_size | Facility ACTIVE, ảnh, địa chỉ, rating/tóm tắt giá khi đã chốt cách tính | 422 INVALID_SEARCH_RANGE / FILTER_NOT_CONFIGURED |
+| GET /facilities | P | q, district, date?, start_time?, end_time?, page, page_size; bộ ba thời gian all-or-none | Facility ACTIVE; interval search kèm `matching_courts` đáp ứng trọn khoảng | 422 INVALID_DATE / INVALID_SEARCH_RANGE / FILTER_NOT_CONFIGURED |
 | GET /facilities/{facility_id} | P | Không | Thông tin public, ảnh, tiện ích, giờ mở cửa, Court ACTIVE, bảng giá và policy hiển thị | 404 nếu không ACTIVE |
 | GET /facilities/{facility_id}/courts | P | Không | Court ACTIVE của Facility ACTIVE | 404 nếu Facility không public |
 | GET /facilities/{facility_id}/reviews | P | page, page_size | Review VISIBLE, tên hiển thị tác giả, rating/comment/ảnh nếu P3 | 404 nếu Facility không public |
 | GET /amenities | P | Không | Danh mục is_active | Lỗi chung |
 
-`q` tìm tên Facility hoặc Court, kết quả không lặp Facility. Nếu lọc lịch thì date/start_time/end_time phải đủ, hợp lệ, có ít nhất một Court phục vụ trọn khoảng giờ yêu cầu theo availability. Không ghép giờ trống từ nhiều Court. Giá/rating/amenity kết hợp lọc ở backend.
+`q` tìm tên Facility hoặc Court, kết quả không lặp Facility. Guest Search theo [GUEST_SEARCH_SPEC.md](specs/GUEST_SEARCH_SPEC.md) đã implement: date/start_time/end_time phải xuất hiện cùng nhau, một ACTIVE Court phải AVAILABLE cho toàn bộ các slot 30 phút liên tiếp, không ghép giờ từ nhiều Court. Không truyền interval giữ nguyên Facility card DTO; có interval bổ sung `matching_courts`. Giá/rating/amenity filter vẫn deferred và trả FILTER_NOT_CONFIGURED.
 
 Các giá trị sort dự kiến `popular`, `rating`, `price_asc`, `price_desc`; TODO công thức popular, giá đại diện/lọc giá và tie-break rating. Trước khi chốt không âm thầm bỏ query chưa hỗ trợ: trả FILTER_NOT_CONFIGURED; UI chưa bật lựa chọn đó. Khi không truyền sort, dùng thứ tự kỹ thuật ổn định id tăng dần, không gắn nhãn “phổ biến”. District dùng registry 94 đơn vị cấp xã; TODO logic nhiều amenity (tất cả hay bất kỳ) trước triển khai bộ lọc tương ứng.
 
@@ -136,7 +167,7 @@ Body create chỉ ba field bắt buộc. ID là string BIGINT dương; start_at/
 
 BookingSummary chỉ: id, court_id, status, start_at, end_at, expires_at, created_at, total_amount, deposit_amount, remaining_amount, facility_name_snapshot, facility_address_snapshot, court_name_snapshot.
 
-BookingDetail thêm: cancellation_cutoff_hours_snapshot (integer/null), bank_name_snapshot, account_number_snapshot, account_holder_snapshot, `qr_image_url`, `qr_image_expires_at`, slots. Mỗi slot chỉ start_at/end_at/hourly_rate_snapshot/slot_amount, order start_at ASC. ID string, tiền decimal string, timestamp UTC Z. QR URL private TTL300 giây được sinh từ snapshot; raw path không expose. Không Customer/Owner relation, slot/lock ID, proof/refund hoặc storage path.
+BookingDetail thêm: cancellation_cutoff_hours_snapshot (integer/null), cancelled_at, cancelled_by, cancellation_reason, bank_name_snapshot, account_number_snapshot, account_holder_snapshot, `qr_image_url`, `qr_image_expires_at`, `refund` summary nullable và slots. Mỗi slot chỉ start_at/end_at/hourly_rate_snapshot/slot_amount, order start_at ASC. ID string, tiền decimal string, timestamp UTC Z. QR URL private TTL300 giây được sinh từ snapshot; raw path không expose. Không Customer/Owner relation, slot/lock ID, PaymentProof hoặc storage path. Refund proof URL không nằm trong BookingDetail; client đọc riêng bằng Refund Detail endpoint có ownership check.
 
 Session ACTIVE + CUSTOMER bắt buộc; POST kiểm tra Origin/X-CSRF-Token. GET luôn lọc customer_id từ session, booking ngoài sở hữu trả404; không chặn lịch sử vì Facility/Court/Owner ngừng ACTIVE. Cache-Control: no-store. List created_at DESC/id DESC, count/items cùng snapshot; query lạ/lặp bị422. List chỉ đọc, biểu diễn PENDING_PAYMENT đã hết hạn thành EXPIRED theo meta.server_time; detail lazy expiry commit trước khi trả. Không countdown PENDING_CONFIRMATION.
 
@@ -178,7 +209,7 @@ Cancel/complete, PaymentProof, Refund, worker và các filter status/from/to kh�
 
 Đúng cutoff cũng bị từ chối. Ví dụ start 18:00, cutoff_hours=2: trước 16:00 được hủy, từ 16:00 không được. CONFIRMED thiếu snapshot cutoff trả 409 CANCELLATION_POLICY_NOT_CONFIGURED; đúng hoặc quá deadline trả 409 CANCELLATION_DEADLINE_PASSED; quy tắc này không chặn nhánh PENDING_PAYMENT. PENDING_PAYMENT đã hết hạn phải commit EXPIRED/nhả locks rồi trả 409 BOOKING_EXPIRED, không chuyển CANCELLED.
 
-`POST /owner/bookings/{booking_id}/cancel` (O sở hữu Facility) nhận `{ "reason": "..." }` bắt buộc không rỗng; chỉ CONFIRMED. Không áp cutoff của Customer. Thiếu lý do 422 CANCELLATION_REASON_REQUIRED; sai state 409 INVALID_BOOKING_STATE; ngoài ownership 404. Owner route không hủy PENDING_PAYMENT/PENDING_CONFIRMATION; người có thêm Customer capability vẫn được hủy PENDING_PAYMENT của mình qua Customer route.
+`POST /owner/bookings/{booking_id}/cancel` (O sở hữu Facility) đã triển khai, nhận exact body `{ "reason": "..." }`, trim và bắt buộc 1–500 Unicode code points; chỉ `CONFIRMED` với PaymentProof `APPROVED`. Không áp cutoff của Customer. Response 200 trả cancellation summary `cancelled_by=OWNER`, Refund `PENDING` bằng `deposit_amount` và `meta.server_time`; thiếu lý do 422 `CANCELLATION_REASON_REQUIRED`, body sai 422 `VALIDATION_ERROR`, sai state/payment 409 `INVALID_BOOKING_STATE`/`INCONSISTENT_PAYMENT_STATE`, ngoài ownership 404. Owner route không hủy PENDING_PAYMENT/PENDING_CONFIRMATION; người có thêm Customer capability vẫn được hủy PENDING_PAYMENT của mình qua Customer route.
 
 Customer cancel PENDING_CONFIRMATION trả 409 CANCELLATION_NOT_ALLOWED; Owner cancel trạng thái này trả 409 INVALID_BOOKING_STATE. Không nhả slot; Owner phải Confirm hoặc Reject. Cả hai route khóa User (ID tăng dần, loại trùng) → Facility → Court → Booking → PaymentProof → Refund → slot locks, đọc lại quyền/state/time. Ghi CANCELLED, cancelled_by từ ngữ cảnh route: route cá nhân là CUSTOMER, route owner là OWNER, cancellation_reason, cancelled_at; xóa slot locks, giữ BookingSlot/PaymentProof lịch sử. Nếu cọc APPROVED và hủy CONFIRMED hợp lệ, tạo Refund PENDING bằng 100% deposit snapshot trong cùng transaction; UNIQUE booking_id chống tạo trùng. CONFIRMED thiếu proof APPROVED trả 409 INCONSISTENT_PAYMENT_STATE và rollback, không bỏ qua nghĩa vụ refund. Cọc chưa xác nhận không tạo Refund.
 
@@ -272,6 +303,12 @@ Backend Phase 1 của năm endpoint trên đã triển khai và kiểm chứng n
 Complete chỉ từ CONFIRMED khi DB now >= end_at; Owner thao tác sau khi đã sử dụng sân và xử lý 70% tại sân, không gửi proof/remaining_payment_status. Request lần hai trả 409 và trạng thái hiện tại, không ghi đè quyết định lần đầu. Không ADMIN override. Sau reject, Customer dùng POST /bookings để thử lại từ đầu, không endpoint resubmit cho booking cũ.
 
 ### Customers, Reviews, Statistics
+
+#### Owner Analytics — Phase 2 backend implemented
+
+Owner Analytics is protected, read-only, and occurrence-based: recurring `BookingSeries` rows are never counted as bookings; their child `Booking` rows are. Implemented endpoints are `GET /api/v1/owner/analytics/overview` and paginated `GET /api/v1/owner/analytics/courts`, with required local `from`/`to`, optional owned `facility_id`, timezone `Asia/Ho_Chi_Minh`, and maximum 366 inclusive days. Court pagination defaults to 1/20, max 100, ordered by occupied slots descending then Court ID ascending. Unknown, repeated, malformed, reversed, or excessive query values return the current 422 validation envelope. Cross-owner Facility filters return 404. Responses contain aggregate whitelists only and never Customer PII, bank/proof/private storage data, or locks.
+
+`confirmed_booking_value` means the snapshot value of current CONFIRMED/COMPLETED occurrences grouped by local `start_at`; it is not actual cash revenue. Known deposit and refunded-deposit metrics remain explicitly separate because the system does not track authoritative receipt of the remaining 70%. Capacity/utilization uses current Facility hours/current ACTIVE Courts and excludes CourtBlock slots, so historical results must be labelled as current-configuration utilization. Full DTO, state semantics, query strategy, and limitations are defined in [OWNER_ANALYTICS_SPEC.md](specs/OWNER_ANALYTICS_SPEC.md).
 
 | Method / path | Request | Response chính | Lỗi chính |
 | --- | --- | --- | --- |
@@ -417,7 +454,7 @@ Public sử dụng facilities/courts/amenities/reviews; Customer dùng auth/user
 - POST register/login/logout bắt buộc Origin khớp FRONTEND_URL. Logout phiên hợp lệ cần X-CSRF-Token, revoke phiên hiện tại; phiên hết hạn trả 204 và clear cookie sau kiểm tra Origin.
 - Register 5/15 phút/IP; login 20/15 phút/IP; sai credentials hoặc ACCOUNT_LOCKED tính vào 5 lần thất bại/15 phút/email normalized. Validation lỗi không tăng email counter. Vượt ngưỡng trả 429 RATE_LIMITED + Retry-After giây; login thành công không xóa counter thất bại. Cửa sổ cố định; request login cùng email tuần tự hóa.
 - Error envelope theo API Conventions, request_id do server tạo; JSON sai trả 422, body quá 16 KiB trả 413 PAYLOAD_TOO_LARGE. Không lộ Prisma/SQL/stack.
-- Chưa triển khai /users/me hoặc Google Login. Owner Request được triển khai riêng theo cập nhật 2026-09-25.
+- `/users/me` read/update tên và phone đã triển khai; Google Login, đổi email và avatar upload chưa triển khai. Owner Request được triển khai riêng và giữ snapshot tại thời điểm submit.
 
 ## Password endpoints — Phase 2 implementation
 
@@ -495,3 +532,12 @@ Delete trả 204 sau commit xóa metadata/compact; destroy Cloudinary là best-e
 ## Facility Presentation validation/frontend — 2026-10-09
 
 POST ảnh chỉ nhận đúng một multipart field `image`: JPEG/PNG/WebP, tối đa 5.000.000 byte. Backend kiểm tra MIME, magic bytes, Sharp decode toàn bộ và giới hạn 25.000.000 pixel; ảnh lỗi hoặc không hoàn chỉnh trả `422 INVALID_IMAGE`. DTO chỉ trả URL HTTPS và metadata an toàn, không trả `image_path`/public_id. Owner frontend dùng nguyên các endpoint Presentation đã có; không thêm API.
+
+## Booking V2 compatibility overlay (2026-10-15)
+Booking DTO detail/create bổ sung `booking_flow_version` (1|2), `confirmation_expires_at` (V1 null, V2 UTC ISO) và `confirmed_by_user_id` nullable. Khi controlled config chọn V2, `POST /bookings` tạo trực tiếp `PENDING_CONFIRMATION` với deadline DB time +30 phút; V1 response/flow giữ nguyên. V2 hết hạn tại `now >= confirmation_expires_at`, được trả/commit `EXPIRED` tại correctness boundary và không còn HELD. PaymentProof endpoints chỉ thuộc V1; frontend payment fail closed/read-only với V2. Owner confirm/reject V2 là phase sau.
+## Booking V2 Phase 2 response additions — 2026-10-15
+
+`POST /api/v1/bookings` và `GET /api/v1/bookings/:id` với Booking V2 trả `booking_flow_version=2`, `status=PENDING_CONFIRMATION`, `confirmation_expires_at`, bank/QR snapshots, amounts và `transfer_reference` đúng `CLDN <BOOKING_ID>` cùng `meta.server_time`. Customer ownership vẫn áp dụng; không trả storage identifier. `POST /api/v1/payments/bookings/:booking_id/proof` chỉ dành cho V1 và trả HTTP 409 `PAYMENT_PROOF_NOT_ALLOWED_FOR_BOOKING_FLOW` khi booking là V2, không upload hoặc mutation.
+
+## Booking V2 Phase 3 Owner actions — 2026-10-16
+`POST /api/v1/owner/bookings/{booking_id}/confirm` nhận exact body `{}`. `POST /api/v1/owner/bookings/{booking_id}/reject` nhận exact `{ reason }`, trim NFC, 1–500 Unicode code points. Cả hai chỉ dành cho Owner ACTIVE sở hữu Facility và Booking V2 `PENDING_CONFIRMATION` còn hạn; ngoài ownership 404, sai capability 403, sai flow/state hoặc hết hạn 409. Hết hạn được commit `EXPIRED` và nhả locks trước response. Confirm ghi `confirmed_at`, `confirmed_by_user_id` và giữ occupancy; Reject ghi `rejected_at`, `rejection_reason`, nhả locks, giữ slots. Owner list/detail trả `transfer_reference` cho V2 và list đủ dữ liệu quick action trong một query.

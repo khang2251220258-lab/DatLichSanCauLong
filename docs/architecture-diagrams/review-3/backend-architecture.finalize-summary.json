@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\backend-architecture.json",
+    "sha256": "16c111d2e1071b3305bdf1b4c2125d2ed0ea70a234d1af5b0b3b1c4fc921610e",
+    "bytes": 5134
+  },
+  "artifact": {
+    "path": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\backend-architecture.html",
+    "sha256": "a1489519c976eb77d66b0627cfaaa060e3d82636625da340be1e0c11af0b3bea",
+    "bytes": 822031
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [
+    {
+      "code": "i18n/locale-fallback",
+      "severity": "warning",
+      "message": "meta.locale \"vi\" has no bundled catalog and no usable meta.translations; the Viewer chrome and <html lang> fall back to English.",
+      "subject": {
+        "diagramType": "architecture",
+        "path": "/meta/locale"
+      },
+      "evidence": {
+        "locale": "vi",
+        "bundledLocales": [
+          "en",
+          "zh-CN",
+          "zh-TW",
+          "es",
+          "ko"
+        ]
+      },
+      "supportedFixes": [
+        "Supply meta.translations for this locale.",
+        "Use a bundled locale: en, zh-CN, zh-TW, es, ko."
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\review-3\\backend-architecture.finalize.json",
+    "summaryReceipt": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\review-3\\backend-architecture.finalize-summary.json",
+    "browserCheckReceipt": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\review-3\\backend-architecture.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.1.0",
+    "availableVersion": "3.1.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-14T04:12:31.370Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 4169,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "routesOverSuggestedBends": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "modules-prisma",
+            "from": "modules",
+            "to": "prisma",
+            "label": "query / transaction",
+            "collectionIndex": 4,
+            "artifactIndex": 5
+          },
+          "bends": 3,
+          "stretch": 1.246
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "modules → prisma needs 3 bends: move node modules or prisma so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

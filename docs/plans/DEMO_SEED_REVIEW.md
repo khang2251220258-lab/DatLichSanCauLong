@@ -40,3 +40,13 @@ Không tạo `facility_images`: runtime yêu cầu Cloudinary `public_id` có as
 Script chỉ cập nhật namespace demo do chính nó sở hữu. Nó không xóa User, Booking, proof hoặc dữ liệu không phải demo. PriceRule của ba Facility demo được replace trong cùng transaction để giữ đúng một rule không overlap; Booking snapshot cũ không bị thay đổi. Sequence có thể tăng và không được reset.
 
 Kết quả xác minh: 3 demo users, 1 approved OwnerRequest/Profile, 3 Facility ACTIVE, 5 Court ACTIVE, 3 Amenity ACTIVE với 9 mapping, 3 PriceRule, 3 policy và 3 bank account. Public list/Home trả tổng 3; detail Facility chính trả 3 Court; Availability ngày 2026-10-07 trả 32 slot AVAILABLE với `slot_amount=40000`. Booking và PaymentProof vẫn bằng 0; không gọi Cloudinary/Resend. Không đổi schema/migration.
+
+## Full-state dataset
+
+Dataset full-state-v1 mở rộng seed cho visual/manual E2E: 10 Facility blueprint, 10 Customer fixture riêng và 32 Booking đủ bảy trạng thái cùng PaymentProof/Refund matrix. Xem docs/plans/DEMO_DATA_EXPANSION_PLAN.md.
+
+Các Customer demo.state.customerNN@booking.invalid dùng password development từ biến DEMO_CUSTOMER_PASSWORD; tài liệu không lưu password. Khi chạy lại, script chỉ xóa và tái tạo booking thuộc các Customer namespace này. Booking manual của demo.customer@booking.invalid không bị xóa.
+
+Proof fixture chỉ lưu private identifier demo-fixtures; seed không gọi Cloudinary. Vì không có binary asset trên Cloudinary, manual test signed-image delivery cần dùng upload flow thật riêng; UI phải giữ fallback/error state.
+
+Sau mỗi lần seed, dùng npm.cmd run seed:demo:verify để lấy ID/route hiện hành. ID không được hard-code vì booking fixture được tái tạo theo DB time.

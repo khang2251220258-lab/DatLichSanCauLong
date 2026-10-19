@@ -105,14 +105,14 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-Backend mặc định http://localhost:3000, tự chạy lại khi sửa file bằng Node watch mode.
-Có thể dùng `npm start` để chạy không watch. Các biến: `PORT=3000`, `NODE_ENV=development`, `FRONTEND_URL=http://localhost:5173`. CORS cho origin này và JSON parser đã được bật.
+Backend mặc định http://localhost:3000. `npm run dev` và `npm start` đều giữ một process ổn định để tránh ngắt request đang chạy; dùng `npm run dev:watch` chỉ khi chủ động muốn backend restart sau khi sửa source. Watch restart sẽ ngắt các socket đang mở và browser có thể báo `ERR_CONNECTION_RESET` trong khoảng chuyển process. Các biến: `PORT=3000`, `NODE_ENV=development`, `FRONTEND_URL=http://localhost:5173`. CORS cho origin này và JSON parser đã được bật.
 Chỉ sao chép `.env.example` khi chưa có `.env`; không ghi đè cấu hình local hiện có. Backend có giá trị mặc định nên cũng chạy được khi chưa tạo `.env`.
 
 Health API công khai:
 
 ```powershell
 Invoke-RestMethod http://localhost:3000/api/v1/health
+Invoke-RestMethod http://localhost:3000/api/v1/ready
 ```
 
 Response HTTP 200:

@@ -2,7 +2,7 @@
 
 ## Implementation Baseline — 2026-10-07
 
-Baseline v1 đã có luồng Auth email/password, khám phá Facility, Availability, tạo/đọc Booking, gửi PaymentProof, Owner confirm/reject proof và quản lý/duyệt Facility cốt lõi. Các phần chỉ có backend hoặc còn thiếu UI được ghi `PARTIAL`; Refund, notification, favorite/review, content và statistics vẫn TODO/DEFERRED trong `FEATURE_STATUS.md`. Mục này chỉ ghi trạng thái, không thay đổi nghiệp vụ bên dưới.
+Baseline v1 đã có luồng Auth email/password, khám phá Facility, Availability, tạo/đọc Booking, gửi PaymentProof, Owner confirm/reject proof, confirmed cancellation, Refund workflow và quản lý/duyệt Facility cốt lõi. Các phần chỉ có backend hoặc còn thiếu UI được ghi `PARTIAL`; notification, favorite/review, content và statistics vẫn TODO/DEFERRED trong `FEATURE_STATUS.md`. Mục này chỉ ghi trạng thái, không thay đổi nghiệp vụ bên dưới.
 
 ## Project Information
 
@@ -10,7 +10,7 @@ Baseline v1 đã có luồng Auth email/password, khám phá Facility, Availabil
 - Tên tiếng Anh: **Online Badminton Court Booking Website in Da Nang City**.
 - Dự án do một người phát triển trong thời gian ngắn; ưu tiên đơn giản, dễ hiểu, dễ bảo trì và demo được trên môi trường triển khai thật.
 - Stack chính thức: React + Vite, Node.js + Express, Prisma, PostgreSQL hosted trên Supabase, REST API; kiến trúc modular monolith; website responsive.
-- Trạng thái hiện tại: đã triển khai database foundation, Auth, Public Facility/Availability, Customer Booking/Payment, Customer proof read, Owner proof confirm/reject và Owner Facility Hub gồm core, ảnh/tiện ích, sân, giá, chính sách hủy và tài khoản nhận cọc + QR. Confirmed cancellation, Refund, notification và các module deferred khác theo `FEATURE_STATUS.md`.
+- Trạng thái hiện tại: đã triển khai database foundation, Auth, Public Facility/Availability, Customer Booking/Payment, Customer proof read, Owner proof confirm/reject, Customer/Owner confirmed cancellation, Refund workflow và Owner Facility Hub gồm core, ảnh/tiện ích, sân, giá, chính sách hủy và tài khoản nhận cọc + QR. Notification và các module deferred khác theo `FEATURE_STATUS.md`.
 - Documentation baseline: v1 — rà soát ngày 2026-09-21. Các quyết định mới trong baseline này thay thế nội dung cũ mâu thuẫn; TODO còn lại được nêu rõ, không được tự suy đoán.
 
 Tài liệu này là **nguồn chuẩn về nghiệp vụ**. Các spec chi tiết phải tuân theo tài liệu này và yêu cầu dự án. Các lựa chọn thiết kế được nêu rõ để toàn bộ tài liệu dùng chung; mục TODO không phải nghiệp vụ đã được quyết định và không được âm thầm hiện thực hóa.
@@ -261,3 +261,12 @@ Phase 1 chỉ q (trim+NFC, contains case-insensitive tên Facility hoặc ACTIVE
 Backend Phase 1 đã triển khai: guest đọc một Court/ngày hôm nay hoặc tương lai. Chỉ Court ACTIVE của Facility ACTIVE và Owner User ACTIVE. Slot30 phút, giờ Asia/Ho_Chi_Minh, một DB-time snapshot; hôm nay start_at <= snapshot là PAST. Priority PAST > BLOCKED > BOOKED > HELD > UNPRICED > AVAILABLE. CONFIRMED→BOOKED; PENDING_CONFIRMATION và PENDING_PAYMENT còn hạn→HELD; các state kết thúc/hold hết hạn không chặn.
 
 Giá slot dự kiến hourly_rate/2 nếu đúng một rule, thiếu null (không giá0), nhiều rule là lỗi cấu hình không tự chọn; state khác vẫn có giá nếu xác định được. Không total quote, không BankAccount check, không booking_ready. Reader không tạo booking/lock hoặc expire/cleanup. Booking vẫn recheck ngân hàng/giá/lịch và chống trùng trong transaction. Contract tại [AVAILABILITY_SPEC.md](specs/AVAILABILITY_SPEC.md); không thay cọc/refund/cancellation.
+
+## Booking V2 State & Expiry Foundation (2026-10-15)
+Booking hiện dual-read theo `booking_flow_version`: V1 giữ nguyên `PENDING_PAYMENT → PaymentProof → PENDING_CONFIRMATION` và V1 `PENDING_CONFIRMATION` không timeout; V2 tạo trực tiếp `PENDING_CONFIRMATION`, giữ slot tối đa 30 phút theo `confirmation_expires_at` và DB time. Cutover được kiểm soát bằng `BOOKING_FLOW_VERSION`, mặc định `1` cho đến khi các phase Owner action/payment V2 hoàn tất. Phase này không xóa hoặc chuyển đổi dữ liệu V1.
+
+## Booking V2 Deposit / Bank Transfer (2026-10-15)
+V2 snapshot tài khoản nhận cọc của Facility khi tạo booking và trả hướng dẫn chuyển khoản ngay trong Booking Detail. Nội dung chuyển khoản do server sinh theo `CLDN <BOOKING_ID>`; Customer chuyển cọc 30% ngoài website, không upload PaymentProof và chờ Owner xác nhận. Deadline 30 phút vẫn do DB quyết định; countdown trình duyệt chỉ hiển thị và phải refetch khi về 0. V1 tiếp tục dùng PaymentProof và toàn bộ lịch sử V1 được giữ nguyên. Owner confirm/reject V2 thuộc phase tiếp theo.
+
+## Booking V2 Owner confirmation (2026-10-16)
+Booking V2 nay hoàn tất nhánh Owner: `PENDING_CONFIRMATION` còn hạn được Owner sở hữu Confirm thành `CONFIRMED` hoặc Reject có lý do thành `REJECTED`; tại/sau `confirmation_expires_at` backend dùng DB time chuyển `EXPIRED`. Confirm giữ occupancy, Reject/Expiry nhả CourtSlotLock và giữ BookingSlot. Booking V1 tiếp tục review PaymentProof như trước.

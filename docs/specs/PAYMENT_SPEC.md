@@ -2,7 +2,7 @@
 
 ## Refund processing — implemented 2026-10-10
 
-Customer cancellation `CONFIRMED → CANCELLED`, tạo Refund `PENDING` và state machine `PENDING → PROOF_SUBMITTED → REFUNDED` đã được triển khai. Owner chuyển tiền ngoài hệ thống rồi gửi một proof; Customer tự kiểm tra tiền thực tế và xác nhận. Không reject/dispute/resubmit/replace/delete/auto-confirm và không đổi Booking khỏi `CANCELLED`.
+Customer hoặc Owner cancellation `CONFIRMED → CANCELLED` đủ điều kiện đều tạo Refund `PENDING` nguyên tử và state machine `PENDING → PROOF_SUBMITTED → REFUNDED` đã được triển khai. Owner cancellation chỉ áp dụng booking thuộc Facility mình, bắt buộc reason và không áp cutoff Customer; cả hai actor đều dùng đúng `deposit_amount` snapshot. Owner chuyển tiền ngoài hệ thống rồi gửi một proof; Customer tự kiểm tra tiền thực tế và xác nhận. Không reject/dispute/resubmit/replace/delete/auto-confirm và không đổi Booking khỏi `CANCELLED`.
 
 API dùng `refund_id`: Owner `GET /owner/refunds/{refund_id}` và `POST /owner/refunds/{refund_id}/proof`; Customer `GET /refunds/{refund_id}` và `POST /refunds/{refund_id}/confirm`. Booking Detail Customer/Owner trả Refund summary để render cùng route hiện có; các GET Refund chỉ cấp signed proof URL sau ownership check. List Refund và Refund Center deferred.
 
@@ -38,7 +38,7 @@ CURRENT — Backend/frontend Payment đã triển khai upload proof, Customer GE
 
 - Session hợp lệ, User ACTIVE, CUSTOMER capability (gồm Approved Owner); ngoài quyền hoặc booking không tồn tại cùng404. Guest dùng Auth foundation; không tự submit sau login.
 - GET Booking Detail đã trả bank_name_snapshot/account_number_snapshot/account_holder_snapshot/deposit_amount cùng expires_at/meta.server_time; không đọc BankAccount hiện hành thay snapshot, không cần DTO/schema mới.
-- Nội dung chuyển khoản frontend derive `BOOKING <booking_id>` từ ID thật. Không mã BK tự sinh, không thêm transfer_reference/cột mới. Không xác thực giao dịch ngân hàng tự động.
+- Với Booking V1, nội dung chuyển khoản lịch sử vẫn là `BOOKING <booking_id>` do frontend derive từ ID thật. Booking V2 dùng `transfer_reference = CLDN <BOOKING_ID>` do backend derive và trả trong DTO; không cần cột mới. Không xác thực giao dịch ngân hàng tự động.
 - QR: schema có qr_image_path_snapshot VARCHAR(1024) nullable, create snapshot nhưng DTO không expose path. Detail sinh signed URL TTL 300 giây; snapshot null hiển thị fallback “QR thanh toán chưa khả dụng. Vui lòng chuyển khoản bằng thông tin bên cạnh.”
 - Chỉ PENDING_PAYMENT còn hạn được upload. Countdown = expires_at - meta.server_time - thời gian client trôi qua monotonic; reload không reset5 phút. Zero/focus GET Detail; background focus sync giữ snapshot đã xác minh gần nhất nên không tự khóa submit chỉ vì `busy`. Lỗi sync/unknown hoặc chưa có snapshot thì khóa submit; không tự EXPIRED.
 - PENDING_CONFIRMATION quay về Detail, không countdown/auto-expire/Customer cancel. CONFIRMED/REJECTED/CANCELLED/EXPIRED/COMPLETED không upload, về Detail theo state thật. 404 không lộ dữ liệu.
@@ -125,7 +125,7 @@ Một bank_accounts hiện hành mỗi Facility: bank_name, account_number, acco
 
 Thông tin chuyển cọc chỉ trả cho Customer sở hữu booking và Owner liên quan, không public đầy đủ trên danh sách cơ sở. QR là ảnh hỗ trợ chuyển khoản, không có callback payment. File QR còn được snapshot tham chiếu không xóa vật lý.
 
-Nội dung chuyển khoản Phase1 là `BOOKING <booking_id>`, frontend derive từ ID thật. Ngân hàng Facility là tài khoản nhận cọc của Owner, không phải tài khoản Customer nhận refund; cách trao đổi thông tin nhận refund chưa được đặc tả, không tự thêm schema ngân hàng Customer.
+Nội dung chuyển khoản V1 tương thích là `BOOKING <booking_id>` do frontend derive từ ID thật. Với V2, backend trả `CLDN <BOOKING_ID>` trong DTO. Ngân hàng Facility là tài khoản nhận cọc của Owner, không phải tài khoản Customer nhận refund; cách trao đổi thông tin nhận refund chưa được đặc tả, không tự thêm schema ngân hàng Customer.
 
 ## Payment Instructions
 
@@ -219,3 +219,12 @@ Cancellation và tạo Refund phải commit/rollback cùng nhau; không nhả sl
 Lỗi chính: INVALID_BOOKING_STATE, BOOKING_EXPIRED, CANCELLATION_NOT_ALLOWED, CANCELLATION_POLICY_NOT_CONFIGURED, CANCELLATION_REASON_REQUIRED, INCONSISTENT_PAYMENT_STATE, INVALID_REFUND_STATE, RESOURCE_NOT_FOUND, PROOF_TOO_LARGE, INVALID_FILE_TYPE, INVALID_IMAGE. API_SPEC quy định HTTP tương ứng.
 
 Backend không tin amount/status/actor do client gửi; không public bucket proof, không log ảnh hoặc credential. Website không thực hiện chuyển cọc, chuyển 70% hoặc chuyển hoàn tiền tự động.
+
+## Booking V2 compatibility boundary (2026-10-15)
+PaymentProof upload/read/review và Refund hiện hành tiếp tục phục vụ Booking V1. Booking V2 Phase 1 không upload proof và payment route chỉ hiển thị read-only, không gọi proof API. Owner V1 confirm/reject giữ nguyên. Owner confirm/reject V2, chuyển khoản sau xác nhận và refund V2 chưa thuộc Phase 1; các đường mutation này phải fail closed cho đến khi contract phase sau được duyệt.
+### Phase 2 — Customer bank transfer instructions
+
+V2 `PENDING_CONFIRMATION` hiển thị bank/QR snapshot, tổng/cọc/còn lại, `CLDN <BOOKING_ID>` và deadline 30 phút từ Booking Detail; không có file picker hoặc PaymentProof request. V2 `EXPIRED` và `CONFIRMED` có presentation read-only riêng. POST proof phải trả conflict `PAYMENT_PROOF_NOT_ALLOWED_FOR_BOOKING_FLOW` cho V2 trước storage upload và không đổi Booking, PaymentProof hay CourtSlotLock. PaymentProof V1, signed URL, duplicate-submit và unknown-result recovery giữ nguyên. Owner V2 confirmation vẫn deferred sang phase tiếp theo.
+
+## Booking V2 Phase 3 compatibility — 2026-10-16
+Owner xác nhận Booking V2 trực tiếp theo booking ID sau khi tự đối chiếu giao dịch ngân hàng; V2 không tạo/đọc/duyệt PaymentProof. Hai endpoint V2 branch bằng `booking_flow_version`; endpoint PaymentProof V1 và Refund V1 giữ nguyên. Không bank API, payment gateway hoặc tự động xác nhận.

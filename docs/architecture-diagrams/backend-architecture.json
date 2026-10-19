@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Backend Architecture",
+    "locale": "vi",
+    "output": "docs/architecture-diagrams/backend-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/khang2251220258-lab/DatLichSanCauLong.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "ac8b4fe53223834f8816f50f183adc6a8984a37a"
+    }
+  },
+  "components": [
+    {
+      "id": "react-client",
+      "type": "frontend",
+      "label": "Client / React",
+      "sublabel": "Trình duyệt gọi REST API",
+      "pos": [40, 250],
+      "size": [150, 66],
+      "sources": [
+        { "path": "backend/src/config/env.js", "line": 11, "end_line": 15, "label": "Frontend origin" },
+        { "path": "backend/src/app.js", "line": 34, "end_line": 38, "label": "CORS boundary" }
+      ]
+    },
+    {
+      "id": "express",
+      "type": "backend",
+      "label": "Express API",
+      "sublabel": "Node.js · /api/v1",
+      "pos": [270, 250],
+      "size": [150, 66],
+      "sources": [
+        { "path": "backend/src/server.js", "line": 1, "end_line": 5, "label": "Process entry" },
+        { "path": "backend/src/app.js", "line": 34, "end_line": 39, "label": "Express setup" }
+      ]
+    },
+    {
+      "id": "middleware",
+      "type": "security",
+      "label": "Middleware",
+      "sublabel": "Session · Origin · CSRF · errors",
+      "pos": [500, 100],
+      "size": [175, 70],
+      "sources": [
+        { "path": "backend/src/modules/auth/middleware.js", "line": 8, "end_line": 26, "label": "Request guards" },
+        { "path": "backend/src/modules/auth/routes.js", "line": 64, "end_line": 71, "label": "API errors" }
+      ]
+    },
+    {
+      "id": "routes",
+      "type": "backend",
+      "label": "Routes",
+      "sublabel": "REST endpoints và DTO boundary",
+      "pos": [500, 250],
+      "size": [175, 70],
+      "sources": [
+        { "path": "backend/src/app.js", "line": 39, "end_line": 62, "label": "Route mounts" },
+        { "path": "backend/src/routes/index.js", "line": 1, "end_line": 9, "label": "Health route" }
+      ]
+    },
+    {
+      "id": "modules",
+      "type": "backend",
+      "label": "Business Modules",
+      "sublabel": "Auth · Facility · Court · Booking · Payment · Refund · Users",
+      "pos": [755, 250],
+      "size": [245, 78],
+      "sources": [
+        { "path": "backend/src/app.js", "line": 1, "end_line": 22, "label": "Module imports" },
+        { "path": "backend/src/app.js", "line": 42, "end_line": 62, "label": "Module wiring" },
+        { "path": "backend/src/modules/bookings/service.js", "line": 15, "end_line": 57, "label": "Business service" }
+      ]
+    },
+    {
+      "id": "prisma",
+      "type": "backend",
+      "label": "Prisma",
+      "sublabel": "Prisma Client + PostgreSQL adapter",
+      "pos": [1080, 250],
+      "size": [190, 70],
+      "sources": [
+        { "path": "backend/src/config/prisma.js", "line": 1, "end_line": 7, "label": "Prisma client" },
+        { "path": "backend/src/modules/bookings/service.js", "line": 21, "end_line": 53, "label": "Transactional access" }
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL / Supabase",
+      "sublabel": "Hosted relational database · TLS",
+      "pos": [1080, 440],
+      "size": [190, 70],
+      "sources": [
+        { "path": "backend/src/config/database.js", "line": 34, "end_line": 47, "label": "PostgreSQL config" },
+        { "path": "backend/src/config/database.js", "line": 53, "end_line": 65, "label": "Prisma CLI TLS" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Backend modular monolith",
+      "wraps": ["express", "middleware", "routes", "modules", "prisma"],
+      "pad": 24
+    }
+  ],
+  "connections": [
+    { "id": "client-api", "from": "react-client", "to": "express", "label": "HTTP REST API", "variant": "emphasis" },
+    { "id": "express-middleware", "from": "express", "to": "middleware", "label": "request guards", "variant": "security" },
+    { "id": "express-routes", "from": "express", "to": "routes", "label": "/api/v1" },
+    { "id": "routes-modules", "from": "routes", "to": "modules", "label": "gọi service" },
+    { "id": "modules-prisma", "from": "modules", "to": "prisma", "label": "query / transaction" },
+    { "id": "prisma-postgres", "from": "prisma", "to": "postgres", "label": "PostgreSQL TLS" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Phạm vi source đã đọc",
+      "items": [
+        "backend/src/app.js và server.js tạo Express API",
+        "modules gồm auth, bookings, courts, facilities, payments, refunds và users",
+        "PrismaPg kết nối PostgreSQL với TLS certificate verification"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Mức trừu tượng",
+      "items": [
+        "Sơ đồ tổng quan runtime, không liệt kê từng endpoint",
+        "Cloudinary và Resend có adapter trong source nhưng nằm ngoài luồng backend lõi của sơ đồ thử nghiệm"
+      ]
+    }
+  ]
+}

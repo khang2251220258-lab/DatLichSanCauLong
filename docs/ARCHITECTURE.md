@@ -1,5 +1,13 @@
 # System Architecture
 
+## Recurring Booking Phase 3 backend boundary
+
+`modules/bookings/series-validation.js`, `series-service.js` và `series-routes.js` sở hữu recurring create/read/Owner action. Public recurring search vẫn ở `modules/facilities/recurring`. Create reuses recurrence expansion, Booking pricing, auth/CSRF và lock hierarchy; nó batch child/slot inserts và không tin search result hoặc client amounts. Customer/Owner list dùng một aggregate data query sau DB clock/session check; detail/action dùng fixed fan-out với deterministic locks. External storage chỉ tạo signed QR delivery; flow không upload hoặc gửi email.
+
+## Account Center frontend boundary
+
+The lazy-loaded `/profile` route owns one protected Profile read and reuses it across all account sections. Profile updates reconcile `AuthContext`. Change-password uses the existing Auth mutation, never retries automatically, and clears frontend session state on a confirmed or unknown result. The shared Header owns the accessible account menu and reuses the existing logout request.
+
 ## Stabilization baseline — 2026-10-07
 
 Frontend dùng API client, Auth Context, AccessibleModal, OwnerLayout và response validators dùng chung; nhãn trạng thái được chia theo domain Booking/Facility. Không có design system hoặc validation framework mới. Read models aggregate hiện tại giữ query budget Public List 2, Detail 2, Availability 3 và Owner Booking 6; Owner Booking là fixed fan-out, không phải N+1. RTT/cold connection/cache/hosting được hoãn đến lúc deploy thật.
@@ -19,6 +27,8 @@ Court Core Phase 1: `src/modules/courts/` gồm routes/controller, validation v�
 Baseline v1: Customer capability áp dụng cho cả Approved Owner khi dùng chức năng cá nhân; quyền quản lý Owner chỉ áp dụng tài nguyên cơ sở mình. PENDING_CONFIRMATION không countdown 5 phút, không tự expire, không cho Customer cancel; Owner phải Confirm hoặc Reject.
 
 ## Architecture Overview
+
+Profile cá nhân dùng một identity và route chung `/profile` cho CUSTOMER, Approved Owner và ADMIN. Backend module `modules/users/profile` chỉ trả self DTO whitelist và PATCH `full_name`/`phone`; mutation lấy User ID từ session, khóa User rồi recheck session ACTIVE. Frontend lazy-load feature `profile`, giữ protected snapshot riêng theo session User ID và reconcile AuthContext từ response/GET authoritative. Email change, avatar storage và account settings tổng quát không thuộc module hiện hành. Owner Request tiếp tục lưu contact snapshot bất biến tại lúc submit.
 
 React + Vite SPA giao tiếp REST/JSON với một ứng dụng Node.js + Express; Prisma truy cập dữ liệu quan hệ trong PostgreSQL hosted trên Supabase. Backend chia module trong cùng codebase/deployment (modular monolith). Một người có thể phát triển, debug và triển khai toàn bộ mà không vận hành nhiều dịch vụ nghiệp vụ.
 
@@ -214,3 +224,31 @@ VITE_API_BASE_URL là public build-time config, cần cấp riêng theo môi tr�
 Ngày 2026-10-04: Booking Phase 1 backend đã triển khai POST /api/v1/bookings, GET /api/v1/bookings và GET /api/v1/bookings/:id. Chỉ Customer capability và dữ liệu cá nhân; POST Origin/CSRF. Transaction khóa User IDs tăng dần/loại trùng → Facility → Court → Booking liên quan → slot locks, recheck sau khóa. Giá tính chính xác bằng BigInt theo đơn vị nửa đồng, rounding theo spec; batch ghi BookingSlot/CourtSlotLock, overflow kiểm tra trước ghi. Lazy expiry tại create/detail, list read-only effective status; Availability không thay đổi. Không PaymentProof/Refund/worker/frontend.
 
 Module backend/src/modules/bookings: routes → rules/service → Prisma, DTO select whitelist tại dto.js. Không thêm dependency. Tái sử dụng auth middleware, validation ID/pagination và bank validation. ReadCommitted cho create/detail có row locks; RepeatableRead + READ ONLY cho list. Kết quả test tại FEATURE_STATUS.
+
+## Frontend request/read reliability — 2026-10-11
+
+Admin Facility/Amenity dùng read hook chung với AbortController, generation guard và key gồm session identity + resource path. Owner Request áp dụng cùng lifecycle trong module hiện có. Chỉ response đúng resource/generation, chưa abort và qua validator mới được commit. Background failure được lưu riêng với blocking initial error để last-known-good snapshot không bị che.
+
+Admin mutation luôn gửi qua API client authenticated/CSRF hiện hành. Với 409, timeout, network interruption hoặc `INVALID_RESPONSE`, frontend không tự lặp mutation mà đọc lại resource authoritative. State chỉ được xem là đã chuyển khi response mutation hợp lệ hoặc recovery read xác nhận; recovery thất bại giữ snapshot và trạng thái unresolved fail-closed.
+
+API client phân biệt external cancellation, timeout nội bộ 20 giây, network failure, HTTP/API error và invalid response. Các read hook dùng AbortController cùng request generation để chặn stale commit; snapshot đã validate tiếp tục được render trong background refetch. Private proof delivery không đổi storage contract: TTL được theo dõi bằng server-time snapshot cộng elapsed monotonic, refresh URL qua authorized API và giới hạn automatic retry để tránh loop.
+
+## Booking V2 foundation (2026-10-15)
+Booking lifecycle dùng discriminator persisted, không suy flow từ status. Lazy expiry dùng chung trong transaction: V1 đọc `expires_at` cho `PENDING_PAYMENT`; V2 đọc `confirmation_expires_at` cho `PENDING_CONFIRMATION`; đến hạn chuyển `EXPIRED` và xóa slot locks nguyên tử. Availability chỉ biểu diễn hold V2 khi deadline còn hiệu lực. V1/V2/Owner decision hiện đều đã triển khai; production contract chọn rõ `BOOKING_FLOW_VERSION=2`, còn development thiếu biến vẫn mặc định V1 để kiểm chứng compatibility. Production thiếu biến phải fail-fast, không được cutover ngầm.
+
+Deployment runbook hiện hành nằm tại [DEPLOYMENT.md](DEPLOYMENT.md). `/api/v1/health` là liveness; `/api/v1/ready` là bounded PostgreSQL readiness. Provider/proxy topology chưa được chọn nên source chưa bật `trust proxy`; không được dùng `trust proxy=true` tùy tiện. Rate limiter in-memory được chấp nhận chỉ cho topology một backend instance trong MVP.
+
+Booking V2 Phase 2 tái sử dụng Customer Booking Detail làm read model duy nhất cho hướng dẫn chuyển khoản, tránh thêm request/waterfall. DTO whitelist trả bank/QR snapshot, amounts, deadline, DB server time và transfer reference server-derived. PaymentProof service kiểm tra `booking_flow_version` trong transaction và fail closed cho V2 trước storage upload; V1 upload/unknown-result/private-proof architecture không đổi.
+
+## Booking V2 Owner action boundary (2026-10-16)
+Owner V2 action khóa User IDs tăng dần → Facility → Court → Booking, đọc DB time và recheck session/capability/ownership/flow/state sau khóa. Confirm/Reject là transaction authoritative; frontend không optimistic hoặc retry mutation, mà refetch khi 409/network/5xx. Owner list vẫn một aggregate query, không N+1.
+# Recurring Search backend boundary (2026-10-17)
+
+Recurring expansion nằm trong Facility public module và dùng calendar `Asia/Ho_Chi_Minh`, ISO weekday 1..7. Endpoint recurring search là một read-only, parameterized PostgreSQL statement: generate occurrences/slots, filter public Court candidates, anti-join blocks/effective V1/V2 occupancy, validate exact PriceRule coverage, group Courts rồi paginate Facilities. Không fan-out Availability, không cleanup stale holds và không tạo Booking/Series/Slot/Lock.
+
+`BookingSeries` là persistence foundation cho writer phase sau; mỗi occurrence tương lai vẫn là một Booking V2 thật. Phase 2 không có writer hoặc series lifecycle action.
+## Owner Analytics — implemented read architecture
+
+Owner Analytics is a read-only module within the modular monolith. It derives Owner identity from the authenticated session, scopes through `Facility.owner_id`, and aggregates `Booking` occurrences, `BookingSlot`, `Refund`, current Facility/Court configuration, and `CourtBlock` directly in PostgreSQL. `BookingSeries` supplies grouping only; child Bookings remain the analytic facts.
+
+The implemented strategy is two independent set-based queries in parallel for overview (booking/financial facts and generated capacity), plus one paginated aggregate query for Court performance. It does not open a read transaction solely for snapshot consistency because Supabase transaction-control RTT is material and dashboard metrics tolerate the small statement boundary. There is no Node row reduction, N+1, materialized view, analytics table, cache shared between Owners, or migration. Final-query EXPLAIN evidence did not justify a new index. See `docs/specs/OWNER_ANALYTICS_SPEC.md`.

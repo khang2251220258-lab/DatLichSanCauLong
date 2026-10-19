@@ -2,7 +2,7 @@
 
 ## Implementation status — 2026-10-07
 
-Backend register/login/session/logout/forgot/reset/change và frontend login/register/forgot/reset đã triển khai. Frontend Change Password và Google Login vẫn DEFERRED; Google-only account không được dùng reset/change để tạo local password.
+Backend register/login/session/logout/forgot/reset/change và frontend login/register/forgot/reset/change-password trong Account Center đã triển khai. Google Login vẫn DEFERRED; Google-only account không được dùng reset/change để tạo local password.
 
 ## Phạm vi và mô hình phiên
 
@@ -20,7 +20,9 @@ Nhận full_name, email, password; tạo CUSTOMER ACTIVE, không OwnerProfile. E
 
 Login nhận email/password, kiểm tra hash và ACTIVE, trả user (role, capabilities), csrf_token và set cookie. Thông tin sai trả INVALID_CREDENTIALS chung. Rate limit theo IP/tài khoản chuẩn hóa; ngưỡng đã chốt dưới đây.
 
-Logout revoke phiên hiện tại và clear cookie; 204 kể cả đã hết phiên. Khóa User thu hồi tất cả phiên; không tự hủy booking. GET /auth/session không trả password_hash, token_hash hoặc Google tokens.
+Frontend sau login phải đọc lại `GET /auth/session` và dùng User/capabilities authoritative của phiên mới trước khi điều hướng. Destination trong Router state chỉ được phục hồi khi là route cấp collection/public phù hợp capability mới; URL resource-scoped có ownership như Booking/Facility detail không được mang qua lần đổi tài khoản. Nếu destination không phù hợp, landing là `/admin/facilities` cho ADMIN, `/owner/facilities` cho OWNER và `/` cho CUSTOMER.
+
+Logout revoke phiên hiện tại và clear cookie; 204 kể cả đã hết phiên. Frontend xóa session/capability state, thay route hiện tại bằng `/login` và xóa Router state để protected URL của tài khoản cũ không trở thành redirect của lần login sau. Khóa User thu hồi tất cả phiên; không tự hủy booking. GET /auth/session không trả password_hash, token_hash hoặc Google tokens.
 
 ## Google Login và Google-only Account
 
@@ -56,7 +58,7 @@ POST /auth/change-password cần phiên ACTIVE và CSRF, nhận current_password
 
 ## Profile
 
-full_name/email/phone/avatar; cho sửa full_name/phone và upload avatar. Email hiển thị, đổi email vẫn ngoài contract cho tới khi quy trình xác minh thay đổi email được chốt. Không cho client sửa role/capabilities/status/owner_id. Owner sử dụng cùng hồ sơ Customer, không tạo tài khoản thứ hai.
+Shared `/profile` và GET/PATCH `/users/me` đã triển khai cho mọi User ACTIVE. DTO chỉ có id/full_name/email/phone/capabilities/has_local_password. PATCH chỉ cho `full_name` trim 1–150 và `phone` nullable trim tối đa 30 (rỗng thành null), yêu cầu Origin/CSRF và không revoke session. Email hiển thị read-only; đổi email và avatar upload vẫn ngoài contract. Không cho client sửa role/capabilities/status/owner_id. Owner sử dụng cùng hồ sơ Customer, không tạo tài khoản thứ hai.
 
 ## Owner Request
 

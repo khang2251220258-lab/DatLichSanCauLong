@@ -1,5 +1,36 @@
 # UI Reference
 
+## Public Home Facility Showcase — REVIEW CANDIDATES, 2026-10-17
+
+- `home-facilities-desktop.png` — Home Facility section at 1440×900.
+- `home-facilities-tablet.png` — Home Facility section at 768×1024.
+- `home-facilities-mobile.png` — Home Facility section at 390×844.
+
+These runtime screenshots document the image-first Home card variant and responsive 4/2/1 grid. They are **not APPROVED references** until the user reviews them. Facility names, images, districts, addresses, and amenities are development runtime data, not presentation fixtures to hard-code. The list API has no price summary, so these candidates intentionally show no invented price.
+
+## Guest Search runtime screenshots — REVIEW CANDIDATES, 2026-10-17
+
+These files were generated from the verified local public flow and are screenshot-review candidates only; they are **not** approved design references until the user explicitly approves them:
+
+- `guest-search-home-desktop.png` — `/` with the enabled interval-search form.
+- `guest-search-results-desktop.png` — `/facilities` interval results, desktop.
+- `guest-search-results-tablet.png` — `/facilities` interval results, tablet.
+- `guest-search-results-mobile.png` — `/facilities` interval results, mobile.
+- `guest-search-facility-detail-desktop.png` — `/facilities/:facility_id` with preserved search context and revalidated Availability.
+
+Runtime Facility/Court names, dates, images, and amenities in these screenshots are development data, not visual or business contract data. The approved existing Home, Facility List, and Facility Detail references remain the visual source of truth.
+## Owner CONFIRMED cancellation — CURRENT/APPROVED, 2026-10-11
+
+| PNG reference | Màn hình/route | Trạng thái |
+| --- | --- | --- |
+| [owner-booking-confirmed-cancellation-desktop.png](owner-booking-confirmed-cancellation-desktop.png) | Owner Booking Detail — `/owner/bookings/:booking_id` | Booking `CONFIRMED`, PaymentProof `APPROVED`; modal Owner hủy booking; CURRENT/APPROVED |
+
+Reference này chốt presentation cho action **Hủy đặt sân** của Owner trên Booking `CONFIRMED`. Click đầu chỉ mở shared `AccessibleModal`, chưa mutation. Modal hiển thị `deposit_amount` cần hoàn ở dạng chỉ đọc, reason bắt buộc sau trim tối đa 500 ký tự cùng character counter, nút **Quay lại** và destructive action **Xác nhận hủy**. Owner không được sửa refund amount và không bị áp Customer cancellation cutoff.
+
+Behavior vẫn theo `BOOKING_SPEC.md`, `PAYMENT_SPEC.md` và API contract: backend xác định ownership/actor/amount, tạo Refund `PENDING` nguyên tử với Booking `CANCELLED`, nhả slot locks và giữ BookingSlot/PaymentProof. Sau success frontend refetch Owner Booking Detail và tái sử dụng [owner-booking-refund-desktop.png](owner-booking-refund-desktop.png); không có Refund Center hoặc route Refund frontend riêng. Reference mới chỉ xác nhận visual readiness, không chứng minh feature đã implementation.
+
+Booking ID, Customer/Owner, Facility/Court, email/phone, ngày giờ, số tiền, notification badge và nội dung nhập trong PNG chỉ là presentation data. Runtime phải dùng DTO/API thật; không hard-code dữ liệu minh họa hoặc bật notification từ hình.
+
 ## Refund workflow — CURRENT/APPROVED, 2026-10-10
 
 | PNG reference | Màn hình/route | Trạng thái |
@@ -49,16 +80,16 @@ Owner Request list/detail dùng navigation Admin shared gồm **Quản lý cơ s
 
 Owner Request frontend đã được triển khai và kiểm chứng ngày 2026-10-09 theo năm reference này. Trạng thái implementation hiện hành tiếp tục được xác nhận tại `docs/FEATURE_STATUS.md`; PNG tự thân không phải bằng chứng feature DONE.
 
-## Admin Facility Approval — APPROVED, 2026-10-07
+## Admin Facility Approval — CURRENT/APPROVED, 2026-10-07
 
 | PNG reference | Màn hình/trạng thái | Trạng thái |
 | --- | --- | --- |
-| [admin-facility-list-desktop.png](admin-facility-list-desktop.png) | `/admin/facilities` | APPROVED |
-| [admin-facility-active-detail-desktop.png](admin-facility-active-detail-desktop.png) | Detail `ACTIVE` | APPROVED |
-| [admin-facility-review-detail-desktop.png](admin-facility-review-detail-desktop.png) | Detail `PENDING` | APPROVED |
-| [admin-facility-rejected-detail-desktop.png](admin-facility-rejected-detail-desktop.png) | Detail `REJECTED` | APPROVED |
-| [admin-facility-reject-modal-desktop.png](admin-facility-reject-modal-desktop.png) | Modal từ chối; pattern lý do cũng dùng cho suspend | APPROVED |
-| [admin-facility-suspended-detail-desktop.png](admin-facility-suspended-detail-desktop.png) | Detail `SUSPENDED` | APPROVED |
+| [admin-facility-list-desktop.png](admin-facility-list-desktop.png) | `/admin/facilities` | CURRENT/APPROVED |
+| [admin-facility-active-detail-desktop.png](admin-facility-active-detail-desktop.png) | Detail `ACTIVE` | CURRENT/APPROVED |
+| [admin-facility-review-detail-desktop.png](admin-facility-review-detail-desktop.png) | Detail `PENDING` | CURRENT/APPROVED |
+| [admin-facility-rejected-detail-desktop.png](admin-facility-rejected-detail-desktop.png) | Detail `REJECTED` | CURRENT/APPROVED |
+| [admin-facility-reject-modal-desktop.png](admin-facility-reject-modal-desktop.png) | Modal từ chối; pattern lý do cũng dùng cho suspend | CURRENT/APPROVED |
+| [admin-facility-suspended-detail-desktop.png](admin-facility-suspended-detail-desktop.png) | Detail `SUSPENDED` | CURRENT/APPROVED |
 
 Các ID, tên, địa chỉ và thông tin Owner trong PNG chỉ minh họa visual. Runtime dùng Facility core và Owner tối thiểu từ Admin Facility API. Không dựng Court, PriceRule, image, thống kê hoặc module Admin khác từ PNG. Owner Facility tiếp tục dùng ba reference đã duyệt bên dưới; detail bổ sung action submit và thông báo trạng thái theo Facility state machine.
 
@@ -74,9 +105,9 @@ Các ID, tên, địa chỉ và thông tin Owner trong PNG chỉ minh họa visu
 | [owner-cancellation-policy-desktop.png](owner-cancellation-policy-desktop.png) | Chính sách hủy của Facility | CURRENT/APPROVED |
 | [owner-bank-account-desktop.png](owner-bank-account-desktop.png) | Tài khoản nhận cọc và QR của Facility | CURRENT/APPROVED |
 
-Sidebar Owner cấp cao chỉ gồm **Cơ sở của tôi** và **Đơn đặt sân**. Từ Facility Detail, Owner đi tới sáu khu vực theo đúng Facility đang chọn: Thông tin cơ sở, Hình ảnh & tiện ích, Quản lý sân, Bảng giá, Chính sách hủy và Tài khoản nhận cọc. Không đưa các cấu hình Facility này trở lại sidebar toàn cục.
+Sidebar Owner cấp cao hiện gồm **Cơ sở của tôi**, **Đơn đặt sân** và **Thống kê** (`/owner/analytics`). Từ Facility Detail, Owner đi tới sáu khu vực theo đúng Facility đang chọn: Thông tin cơ sở, Hình ảnh & tiện ích, Quản lý sân, Bảng giá, Chính sách hủy và Tài khoản nhận cọc. Không đưa các cấu hình Facility này trở lại sidebar toàn cục.
 
-Ngoại lệ visual đã ghi nhận: sidebar minh họa trong `owner-facility-list-desktop.png` và `owner-booking-list-desktop.png` còn các mục cũ như Tổng quan, Quản lý sân, Thanh toán hoặc Thống kê. Phần sidebar đó đã bị supersede bởi navigation hai mục ở trên; implementation không được khôi phục route/menu cũ từ PNG. Nội dung chính của hai màn hình vẫn là reference hiện hành.
+Ngoại lệ visual đã ghi nhận: sidebar minh họa trong `owner-facility-list-desktop.png` và `owner-booking-list-desktop.png` còn các mục cũ như Tổng quan, Quản lý sân hoặc Thanh toán. Phần sidebar đó đã bị supersede bởi navigation hiện hành ở trên; mục **Thống kê** chỉ hợp lệ vì Phase 3 đã triển khai route thật, không vì PNG cũ. Nội dung chính của hai màn hình vẫn là reference hiện hành. Chưa có PNG Analytics được duyệt; mọi screenshot sinh từ runtime chỉ là `REVIEW CANDIDATE`.
 
 BankAccount thuộc từng Facility, tối đa một tài khoản hiện hành trên mỗi Facility. Tỷ lệ cọc là hằng số nghiệp vụ 30%, chỉ hiển thị giải thích và không có control cho Owner thay đổi. Booking chụp snapshot `bank_name`, `account_number`, `account_holder` và QR tại lúc tạo; thay đổi sau đó không sửa booking cũ. PNG chỉ quyết định visual: QR upload/delete/private delivery chỉ được bật khi backend contract tương ứng đã triển khai và kiểm chứng.
 
@@ -90,7 +121,7 @@ Các file sau không còn là reference chính cho navigation Owner mới, chưa
 
 - `owner-facility-form-desktop.png`: form core cũ vẫn có thể hỗ trợ visual route create/edit, nhưng sidebar/layout không còn là chuẩn hiện hành.
 - `owner-court-form-desktop.png`: form Court cũ vẫn có thể hỗ trợ visual create/edit, nhưng sidebar/layout không còn là chuẩn hiện hành.
-- `owner-payment-review-desktop.png`: reference lịch sử của detail/review payment đã triển khai; cần reference mới nếu muốn đồng bộ hoàn toàn với sidebar hai mục.
+- `owner-payment-review-desktop.png`: reference lịch sử của detail/review payment đã triển khai; cần reference mới nếu muốn đồng bộ hoàn toàn với sidebar hiện hành.
 
 ## Owner Booking — CURRENT/APPROVED
 
@@ -181,6 +212,57 @@ Lưu ý cho implementation sau:
 5. Không được suy ra rằng một feature đã được backend hỗ trợ chỉ vì nó xuất hiện trong PNG.
 6. Trước khi triển khai một frontend page/feature, phải xác định PNG reference tương ứng, đối chiếu PNG với API/spec hiện tại và báo conflict nếu visual yêu cầu feature backend chưa hỗ trợ.
 7. Chỉ những PNG đã được người dùng duyệt mới được dùng làm reference chính thức.
+
+## Recurring Booking screenshot candidates — NOT APPROVED
+
+Các file cũ của Phase 4 vẫn là historical screenshot candidates:
+
+- `recurring-search-desktop.png` — recurring form, 1440px.
+- `recurring-search-results-desktop.png` — fixture HTTP cô lập, 1440px.
+- `recurring-search-results-mobile.png` — fixture HTTP cô lập, 390px.
+
+Các file redesign sau được tạo bởi Playwright read-only ngày 2026-10-17 và là **REVIEW CANDIDATE, chưa APPROVED**:
+
+- `recurring-search-redesign-desktop.png` — initial recurring search, 1440×900.
+- `recurring-search-redesign-tablet.png` — initial recurring search, 768×1024.
+- `recurring-search-redesign-mobile.png` — initial recurring search, 390×844.
+- `recurring-search-results-redesign-desktop.png` — stable isolated HTTP result contract, 1440×900.
+
+Dữ liệu trong ảnh chỉ là presentation fixture, không phải seed/runtime contract.
+
+## Owner Analytics authenticated runtime candidates — NOT APPROVED (2026-10-18)
+
+- `owner-analytics-desktop.png` — `/owner/analytics`, desktop authenticated runtime.
+- `owner-analytics-tablet.png` — `/owner/analytics`, tablet authenticated runtime.
+- `owner-analytics-mobile.png` — `/owner/analytics`, mobile authenticated runtime.
+
+Ba ảnh được tạo từ fixture PostgreSQL cô lập và đã qua kiểm tra request count, overflow, console/network và cleanup. Chúng là **REVIEW CANDIDATE**, chưa phải approved visual references và không thay đổi business/API contract.
+
+## Recurring Customer authenticated runtime candidates — NOT APPROVED
+
+Các ảnh sau được tạo ngày 2026-10-18 bằng authenticated Playwright, API thật và fixture PostgreSQL cô lập. Chúng là **REVIEW CANDIDATE**, chưa phải approved visual references:
+
+- `recurring-customer-list-desktop.png` — `/booking-series`, desktop 1440px.
+- `recurring-customer-detail-desktop.png` — `/booking-series/:series_id`, desktop 1440px.
+- `recurring-customer-detail-tablet.png` — Series Detail, tablet 768px.
+- `recurring-customer-detail-mobile.png` — Series Detail, mobile 390px.
+- `recurring-customer-refund-desktop.png` — cancelled occurrence với Refund `PENDING`.
+- `recurring-customer-cancel-modal.png` — modal hủy occurrence đủ điều kiện.
+
+Tên, ID, ngày giờ và số tiền trong ảnh là dữ liệu fixture tạm, không phải contract hoặc seed ổn định. Phase 5D không tạo private proof giả nên các ảnh này không đại diện cho Refund `PROOF_SUBMITTED`/`REFUNDED`.
+
+## Final Stabilization Phase 3 runtime candidates — NOT APPROVED (2026-10-19)
+
+The following authenticated release-rehearsal screenshots use isolated `TEST_E2E_RELEASE_` data and are **REVIEW CANDIDATE** evidence only. They are not approved visual references and their temporary IDs, names, dates, and amounts are not runtime contracts:
+
+- `release-home-desktop.png`
+- `release-customer-booking-desktop.png`
+- `release-customer-booking-mobile.png`
+- `release-owner-bookings-desktop.png`
+- `release-owner-analytics-desktop.png`
+- `release-owner-analytics-mobile.png`
+- `release-admin-desktop.png`
+- `release-recurring-customer-desktop.png`
 
 ## Naming convention
 

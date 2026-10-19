@@ -1,10 +1,185 @@
 # Feature Status
 
+## Final Project Stabilization Phase 3 — authenticated release rehearsal VERIFIED (2026-10-19)
+
+The isolated authenticated rehearsal covers Customer, Owner, and Admin through the real Login UI, real session cookies, browser navigation, and the development PostgreSQL database. It creates only `TEST_E2E_RELEASE_` records, executes one V2 booking create, Owner confirmation, recurring create, Owner series confirmation, Owner Analytics reads, and one Admin Amenity mutation; exact manifest cleanup and verify-only postflight returned every scoped count to zero. Booking #1119 remained unchanged.
+
+The final run passed **1/1** in 3.4 minutes. Critical POST requests were each exactly one; Owner Analytics issued one Overview and one Courts request; no unexpected console or page error occurred. Expected session-bootstrap 401s were counted and matched their browser-console messages. A regression now prevents Login from restoring a resource-scoped Booking or Series URL captured for a prior account, including when the newly logged-in Owner also has CUSTOMER capability. Frontend regression **409/409**, targeted Auth/Facility/Recurring **64/64**, lint, and production build passed. Screenshots `release-*.png` are **REVIEW CANDIDATE**, not approved UI references.
+
+No schema, migration, normal seed, external email/upload, or demo-data mutation occurred. Production deployment remains blocked by reviewed immutable commits, provider/domain/proxy topology, an isolated backup/restore rehearsal, staging deployment validation, and monitoring ownership.
+
+## Final Project Stabilization Phase 2 — RELEASE HARDENING (2026-10-19)
+
+Production single-booking contract now requires explicit `BOOKING_FLOW_VERSION=2`; development remains backward-compatible with missing value defaulting to V1. Prisma CLI/client/PostgreSQL adapter were upgraded together from 7.10.0 to 7.10.1, closing the four previously reported HIGH npm advisories. A bounded database readiness endpoint `/api/v1/ready` complements the unchanged liveness endpoint `/api/v1/health`. Production environment, migration, backup, rollback, monitoring, proxy and smoke procedures are documented in `docs/DEPLOYMENT.md`; the reviewable commit split is documented in `docs/RELEASE_BASELINE_PLAN.md`.
+
+This section records release hardening, not production deployment. Provider/domain/proxy topology, backup/restore rehearsal and full authenticated three-role release rehearsal remain required. Historical phase tables below remain timeline records and do not override this current state.
+
+## Recurring Booking Phase 5D — authenticated Customer runtime VERIFIED (2026-10-18)
+
+Authenticated Playwright đã xác minh luồng Customer thật trên `/booking-series` và `/booking-series/:series_id` bằng fixture PostgreSQL cô lập `TEST_E2E_CUSTOMER_`, đăng nhập qua UI và session cookie thật. Dataset runtime gồm một Series `CONFIRMED` với child `COMPLETED`, `CANCELLED` + Refund `PENDING` và hai child `CONFIRMED`; không tạo private proof giả khi không có asset authenticated an toàn. Desktop/tablet/mobile đều không horizontal overflow, modal hủy giữ focus/Escape, list/detail trực tiếp cùng SPA Back/Forward hoạt động.
+
+Initial Series List và Detail mỗi route phát đúng một GET trong React StrictMode; không có per-child Booking/Refund/PaymentProof N+1. Runtime evidence: authenticated Playwright **4/4 PASS**; recurring targeted **16/16 PASS**; frontend tuần tự **409/409 PASS**; backend local **93/93 PASS**; lint, build, Prisma validation, health 200 và diff check PASS. Sáu ảnh `recurring-customer-*` là **REVIEW CANDIDATE, chưa APPROVED**. Fixture, AuthSession và file credential tạm đã cleanup; verify-only trả mọi count bằng 0, Booking #1119 không đổi. Refund `PROOF_SUBMITTED`/`REFUNDED` chưa được dựng trong E2E này vì task không cho phép giả private storage identifier; lifecycle đó vẫn có PostgreSQL/component evidence từ Phase 5B/5C.
+
+## Recurring Booking Phase 5C — Customer occurrence cancellation/refund UI COMPLETE (2026-10-18)
+
+Customer Series Detail `/booking-series/:series_id` now renders authoritative mixed child states, cancellation deadline/block reason and child-level financials. Only a server-advised `can_cancel=true` occurrence exposes an accessible confirmation modal; the frontend posts no financial or actor fields, uses a synchronous lock, never retries the mutation, and performs an authoritative Series refetch after success, 409 or an uncertain result. Parent Series and siblings remain unchanged.
+
+Cancelled occurrences render their child Refund lifecycle. `PENDING` is read-only without a proof request; `PROOF_SUBMITTED`/`REFUNDED` load the private signed proof only after an explicit disclosure action and reuse the existing Customer acknowledgement flow. Exact DTO validation now enforces cancellation/refund state timestamps, child identity and refund amount equal to the child deposit. Evidence: targeted recurring **15/15 PASS**, full sequential frontend **408/408 PASS**, lint and production build PASS. No backend, database, schema, migration, seed, demo data or Booking #1119 change; bulk/future/whole-Series cancellation and recurring PaymentProof remain deferred.
+
+## Recurring Booking Phase 5B — occurrence cancellation/refund backend COMPLETE (2026-10-18)
+
+Backend và verification closure đã hoàn tất. Customer có thể hủy đúng một confirmed recurring child qua endpoint explicit; child giữ BookingSlot history, chỉ nhả locks của nó và tạo Refund bằng deposit snapshot; parent Series giữ `CONFIRMED`. Refund invariant giữ V1 PaymentProof evidence và mở hẹp confirmed recurring V2 evidence. PostgreSQL đã chứng minh before/exact/after cutoff bằng DB-returned clock, rollback sau Refund insert, cancel/cancel, concurrent child A/B, lock identity isolation, Availability sau commit và Refund lifecycle `PENDING -> PROOF_SUBMITTED -> REFUNDED`.
+
+Evidence: backend local **93/93**; recurring PostgreSQL **17/17**; Recurring Search **7/7**; Guest Search **5/5**; Public Facility **9/9**; Availability **6/6**; Booking V2 **14/14**; Booking V1 **19/19**; Payment/Refund **22/22**; Owner Analytics **5/5**; mọi fixture cleanup PASS. Frontend recurring **9/9**, full sequential frontend **402/402**, lint/build, health/public/guest/recurring smoke và diff check PASS. Ghi chú Customer UI pending ở mốc Phase 5B đã được Phase 5C phía trên thay thế; không schema/migration/seed/demo mutation và Booking #1119 giữ nguyên.
+
+## Public Recurring Search — UI REDESIGN VERIFIED (2026-10-17)
+
+`/facilities?mode=recurring` now has a compact public-search hierarchy, accessible segmented mode selector, grouped recurring date/time controls, neutral constraint guidance, distinct initial/empty/error/loading states and authoritative result metadata. Existing recurring validation, URL hydration, pagination, matching-Court selection, guest intent and strict response handling are unchanged.
+
+Evidence: Public Search targeted **20/20 PASS**, responsive read-only Playwright **3/3 PASS** with zero pre-submit and exactly one post-submit recurring GET, full frontend **402/402 PASS** using the stable single-worker `vmThreads` run, lint and production build PASS. Four generated screenshots are **review candidates**, not approved references. Backend/database/schema/migration/demo data and Booking #1119 were unchanged.
+
+## Public Home Facility Showcase — UI REDESIGN VERIFIED (2026-10-17)
+
+The Home Facility section now uses an explicit `FacilityCard` Home variant with image-first 3:2 media, strong Facility identity, district/address hierarchy, at most three amenity chips plus an authoritative remainder count, and the lightweight **Xem sân** action. The list DTO has no price summary, so the showcase does not display or derive a price. Search Results retain their existing availability-focused `matching_courts`, URL state, and **Xem chi tiết** behavior.
+
+Home still performs one `GET /facilities?page=1&page_size=4`; no per-card detail request or dependency was added. Read-only Playwright passed desktop/tablet/mobile **3/3**, with one list request, zero pre-navigation detail requests, correct Detail navigation, and no body overflow. Guest one-time plus recurring search Playwright passed **6/6**. Targeted frontend **91/91**, full sequential frontend **402/402**, lint, production build, and diff check PASS. Three generated Home showcase screenshots are review candidates, not approved references. Backend/database/schema/migrations/demo data and Booking #1119 were unchanged.
+
+## Owner Analytics Phase 4 — AUTHENTICATED RUNTIME VERIFIED / MVP CLOSED (2026-10-18)
+
+Authenticated Playwright now creates an isolated `TEST_E2E_OWNER_ANALYTICS_` Owner/Facility dataset, signs in through the real Login UI, and verifies `/owner/analytics` at desktop, tablet, and mobile. Initial load issues exactly one Overview GET plus one Courts GET in parallel; Court pagination only reloads Courts, filters reload both datasets with HTTP 200, URL state survives navigation, and protected snapshots make the measured revisit visible in 141 ms. Runtime screenshots are review candidates, not approved design references.
+
+Phase 4 found and fixed two runtime integration defects: Courts metadata returned an undocumented `total_pages` field rejected by the strict frontend DTO, and the shared Owner read hook allowed React StrictMode's discarded mount to reach the API. The response now uses the standard exact list metadata, while deferred initial reads retain abort/generation/cache isolation without duplicate initial GETs. Evidence: authenticated Playwright **4/4 PASS**, Owner Analytics frontend **6/6**, backend local **93/93**, Analytics PostgreSQL **5/5**, full frontend **409/409**, lint/build/Prisma/health/diff PASS. All E2E rows, sessions, and temporary credentials were cleaned; Booking #1119 remained unchanged. No schema, migration, seed, or persistent demo-data change. **Owner Analytics MVP is CLOSED.** Next phase: **FINAL PROJECT STABILIZATION**.
+
+## Owner Analytics Phase 3 — OWNER DASHBOARD IMPLEMENTED / VERIFIED (2026-10-17)
+
+Route `/owner/analytics` is implemented inside the shared Owner workspace with URL-backed Facility/date filters, an Asia/Ho_Chi_Minh last-30-day default, four contract-labelled KPIs, monthly trend, weekday use, accessible half-hour heatmap, compact daily capacity, and server-paginated Court performance. It consumes exactly one Overview and one Courts request per filter state; Court-only pagination does not refetch Overview. Strict DTO validation, account/capability/path-isolated protected snapshots, AbortController/generation guards, last-known-good background refresh, and zero-capacity semantics are retained. The UI labels `confirmed_booking_value` as scheduled confirmed booking value, never actual revenue.
+
+Frontend evidence: Analytics targeted plus Owner/Auth regression **141/141 PASS**; full sequential frontend **401/401 PASS**; lint, production build and `git diff --check` PASS. The default parallel run exhausted local worker memory, so the authoritative full run used one file worker as required by the project handoff. No backend, database, schema, migration, seed, demo data, or Booking #1119 was changed. Owner Playwright was not run because `E2E_OWNER_EMAIL` and `E2E_OWNER_PASSWORD` are not configured; no screenshots were generated.
+
+## Owner Analytics Phase 2 — BACKEND IMPLEMENTED / VERIFIED (2026-10-17)
+
+Protected read-only `GET /api/v1/owner/analytics/overview` and paginated `GET /api/v1/owner/analytics/courts` are implemented. Analytics counts `Booking` occurrences (including recurring children), not `BookingSeries`; CONFIRMED/COMPLETED drive value and occupancy, financial metrics keep confirmed deposits and Customer-confirmed REFUNDED amounts separate, and capacity uses current opening hours/current ACTIVE Courts with CourtBlock excluded. Owner identity comes only from the ACTIVE session; optional Facility filters are ownership checked and cross-owner access returns 404.
+
+Overview keeps two parameterized PostgreSQL statements in parallel; Court performance uses one aggregate statement. Local/query-budget **6/6 PASS** and PostgreSQL Analytics integration **5/5 PASS**, including seven Booking states, recurring child, Refund state matrix, timezone boundary, CourtBlock, zero capacity, pagination, isolation, and fixture cleanup. Ten read-only samples and final EXPLAIN found no evidence for an index or migration. The newer Phase 3 entry supersedes the former frontend deferral; actual 70% revenue and exact historical configuration remain unavailable.
+
+## Recurring Booking Phase 4 — CUSTOMER / OWNER FRONTEND IMPLEMENTED / VERIFIED (2026-10-17)
+
+Public `/facilities` now offers accessible one-time and recurring modes. Recurring state is URL-backed, uses strict all-occurrence search, preserves the exact confirmation destination through Login/Register without browser storage, and posts only the approved recurring intent. Customer routes `/booking-series` and `/booking-series/:series_id` group children at Series level and show aggregate bank/QR instructions with DB-time 30-minute countdown; no recurring PaymentProof UI exists. Owner routes `/owner/booking-series` and `/owner/booking-series/:series_id` provide list/detail plus whole-Series quick confirm/reject with synchronous locks and authoritative recovery.
+
+Frontend DTOs fail closed; protected reads retain identity/capability/path cache isolation, AbortController and stale-response guards. Evidence: targeted recurring/Owner regression **48/48 PASS**, full sequential frontend **395/395 PASS**, public read-only Playwright desktop/tablet/mobile **3/3 PASS**, lint/build/diff PASS. Three generated screenshots are **review candidates, not approved references**. Backend/schema/migration/database/demo data and Booking #1119 were not changed. Recurring occurrence cancellation/refund, bulk cancellation, analytics and PaymentProof remain deferred.
+
+## Recurring Booking Phase 3 — BACKEND IMPLEMENTED / VERIFIED (2026-10-17)
+
+Atomic `POST /api/v1/bookings/recurring`, Customer/Owner Series list/detail, shared DB-time 30-minute expiry và Owner whole-series confirm/reject đã hoàn tất. Create all-or-nothing qua BookingSeries, V2 children, BookingSlots và CourtSlotLocks; aggregate money child-first, bank/QR snapshots bất biến, reference `CLDNS <SERIES_ID>`, PaymentProof bị chặn cho recurring/V2. Evidence: backend local **86/86 PASS**; Phase 3 PostgreSQL **13/13 PASS** gồm injected rollback, create/create, partial overlap, single-vs-Series và confirm/reject races; Booking V2 **14/14**, legacy Booking **19/19**, Recurring Search **7/7**, Availability **6/6**, Payment **22/22** PASS, mọi fixture cleanup PASS. Không đổi schema/migration/demo data; runtime baseline vẫn 47 Booking/35 PaymentProof/9 Refund/140 BookingSlot/65 locks/0 Series và Booking #1119 giữ nguyên. Frontend và recurring cancellation/refund vẫn deferred.
+
+## Recurring Booking Phase 2 — BACKEND FOUNDATION IMPLEMENTED / VERIFIED (2026-10-17)
+
+**Recurring Booking Phase 2 backend foundation: COMPLETE (2026-10-17).** Business rules đã approved; migration additive tạo `BookingSeries` và nullable `Booking.booking_series_id`, không rewrite Booking V1/V2. Public strict all-occurrence `GET /api/v1/facilities/recurring-search` đã triển khai bằng một PostgreSQL statement, cùng recurrence expansion/validation và PostgreSQL integration coverage. Evidence: local backend 83/83, recurring PostgreSQL 7/7, related PostgreSQL regression 56/56, health/public smoke 200; 10 remote samples p50 280.3 ms/p95 282.6 ms, plan execution 7.37 ms và không cần performance index mới. BookingSeries runtime count sau verification là 0; Booking #1119 và baseline 47 Booking/35 PaymentProof/9 Refund giữ nguyên. Recurring create, series reads/actions/payment/cancellation/refund mutation và frontend vẫn deferred. Contract: `docs/specs/RECURRING_BOOKING_SPEC.md`.
+
+## Guest Search Phase 3 — PUBLIC UI IMPLEMENTED / VERIFIED (2026-10-17)
+
+Home, `/facilities`, and `/facilities/:facility_id` now support the public one-date interval-search flow using `district + date + start_time + end_time`, while Facility List keeps `q` and pagination in URL state. Interval cards use the strict `matching_courts` DTO; Detail preserves search context, highlights only matching ACTIVE Courts, and rechecks the selected Court through Availability before restoring a 1–6 slot selection. Recurring search backend is now covered by the newer Phase 2 entry above; recurring UI remains deferred.
+
+Guest booking intent is held only in React/router memory and causes no pre-login mutation. Login/Register restore the confirmation destination only after the new authoritative session has CUSTOMER capability; ADMIN and stale cross-role destinations fail closed to capability landing pages. Booking create, price calculation, locking, expiry, and `SLOT_UNAVAILABLE` remain backend-authoritative. Targeted frontend **137/137 PASS**, full sequential frontend **386/386 PASS**, lint/build PASS, public Playwright desktop/tablet/mobile **3/3 PASS**, health 200. Backend/schema/migration/database/demo data were not changed in Phase 3. Recurring/fixed-schedule search remains deferred.
+
+## Guest Search Phase 2 — BACKEND IMPLEMENTED / VERIFIED (2026-10-17)
+
+Public `GET /api/v1/facilities` đã hỗ trợ bộ ba all-or-none `date`, `start_time`, `end_time` cùng `q`, `district` và pagination hiện hành. Một Facility chỉ match khi có ít nhất một ACTIVE Court AVAILABLE cho toàn bộ 1–6 slot 30 phút; V1/V2 effective holds, CourtBlock, PriceRule, half-open boundary và DB time được xử lý trong một PostgreSQL statement. Interval DTO thêm `matching_courts`; list không interval giữ nguyên DTO cũ. Local backend **77/77 PASS**, Guest Search PostgreSQL **5/5 PASS**, Public Facility PostgreSQL **9/9 PASS**, Availability **6/6 PASS**, Booking V2 **14/14 PASS**; query-budget một round trip và performance read-only 10 mẫu p50 259.9 ms/p95 272.1 ms. Fixtures cleanup PASS; không đổi schema/migration/demo data. Ghi chú lịch sử: frontend Guest Search còn deferred tại thời điểm Phase 2; Phase 3 ở trên đã hoàn tất public UI. Recurring search vẫn DEFERRED.
+
+## Admin Owner Request List visual redesign — 2026-10-14
+
+`/admin/owner-requests` đã được đồng bộ với Admin workspace hiện hành: hierarchy quản lý tài khoản rõ ràng, total theo pagination metadata, filter trạng thái có `aria-pressed`, desktop dùng semantic table và tablet/mobile dùng semantic list/card không overflow. List chỉ render Owner Request snapshot DTO, không fetch User/Profile/OwnerProfile, không thêm moderation action hoặc thay API/state machine.
+
+Loading skeleton, empty/error, pagination, protected snapshot cache 30 giây, background revalidation, strict DTO validation, AbortController/generation guard và isolation theo User/capability/exact path được giữ nguyên. Targeted Owner Request/cache **18/18 PASS**; authenticated Playwright read-only tạo screenshot desktop/tablet/mobile và không gọi Approve/Reject. Backend/database/schema/migration/seed/demo data không đổi.
+
+## Admin Facility Detail visual redesign — 2026-10-14
+
+`/admin/facilities/:facility_id` đã được chuyển thành detail workspace trong Admin shell hiện hành: một H1 **Chi tiết cơ sở**, Facility identity/status rõ ràng, definition-list read-only và bố cục desktop khoảng 65/35. Năm Facility states giữ đúng action matrix; DRAFT/REJECTED không có mutation, PENDING approve/reject, ACTIVE suspend và SUSPENDED activate. Tablet/mobile stack theo nội dung, touch target/focus/reduced-motion và long-content wrapping được giữ.
+
+Không đổi API/DTO hoặc state machine. Strict response validation, AbortController/generation guard, snapshot preservation, double-submit lock, Origin/CSRF, 409 và unknown-result authoritative recovery tiếp tục được kiểm chứng. Targeted Admin Facility/reliability **28/28 PASS**; authenticated Playwright read-only desktop/tablet/mobile **3/3 PASS**, một GET cho mỗi detail URL và không horizontal overflow/console error sau login. Full frontend chạy tuần tự **372/372 PASS**. Backend/database/schema/migration/seed và demo data không đổi; Playwright không gọi Admin mutation.
+
+## Personal Account Center — COMPLETE (2026-10-13)
+
+- Shared `/profile` provides Profile, Security, and Capabilities/Account sections for Customer, Owner, and Admin.
+- The existing change-password endpoint is exposed through a guarded UI; success clears frontend auth and requires login again. Accounts without a local password receive a read-only explanation.
+- The shared header has one accessible capability-aware account menu. Owner Request links to Profile while existing request snapshots remain unchanged.
+- Email change, avatar upload, account deletion, 2FA, session management, and arbitrary preferences remain deferred.
+
+## Shared Personal Profile — 2026-10-13
+
+Shared route `/profile` đã triển khai cho Customer, Approved Owner và Admin. Backend `GET/PATCH /api/v1/users/me` trả DTO whitelist và chỉ cho tự cập nhật `full_name`/`phone`; email/capabilities/identity server-managed, phone rỗng chuẩn hóa `null`, PATCH bắt buộc session ACTIVE + Origin + CSRF và khóa User trước khi ghi. Frontend có strict response validation, abort/generation guard, snapshot preservation, synchronous submit lock, unknown-result authoritative GET recovery và đồng bộ AuthContext/Header ngay sau save.
+
+Owner Request tiếp tục chụp snapshot `full_name/email/phone` tại thời điểm submit; sửa Profile không đổi request PENDING hoặc lịch sử. Email change, avatar upload, Change Password UI và full account menu/settings vẫn deferred. Không đổi schema/migration và không seed/demo mutation.
+
+## Admin Facility List visual redesign — 2026-10-13
+
+`/admin/facilities` đã chuyển từ div-grid CRUD sang hàng đợi vận hành rõ hierarchy. Desktop dùng semantic table; tablet/mobile chuyển record thành card có nhãn, status text và detail action dùng được bằng bàn phím/touch. UI chỉ dùng list DTO thật, bỏ cột Owner giả và không thêm search, analytics, Court/gallery/amenity/pricing.
+
+Filter/pagination, strict response validation, AbortController/generation guard và snapshot preservation được giữ nguyên. Targeted Admin Facility **23/23 PASS**; authenticated Playwright desktop/tablet/mobile **3/3 PASS** và không có horizontal overflow. Full frontend chạy tuần tự **343/343 PASS**, lint/build và `git diff --check` PASS. Facility Detail và các màn Admin khác chưa được redesign trong phase này; backend/database/schema/migration/seed không đổi. Trong regression, chuỗi tiếng Việt bị mojibake từ thay đổi Admin Amenity đang có trong working tree đã được chuẩn hóa encoding mà không đổi logic.
+
+## Playwright baseline + Admin Workspace Shell — 2026-10-13
+
+- Playwright Test 1.64.0 được cấu hình cho Vite local tại `http://localhost:5173`, đồng bộ với Origin/CORS backend. Public smoke chạy tách biệt trên Chromium, Firefox và WebKit; artifacts chỉ giữ khi thất bại.
+- Admin shell dùng header, account/logout, sidebar đúng ba route thật (`/admin/facilities`, `/admin/owner-requests`, `/admin/amenities`), active state hỗ trợ route detail, responsive theo desktop/tablet/mobile và không thay page content.
+- Authenticated Admin E2E là read-only, lấy `E2E_ADMIN_EMAIL`/`E2E_ADMIN_PASSWORD` từ environment. Thiếu credential thì test skip rõ ràng; không giả session/capability và không ghi Supabase.
+- Screenshot runtime do E2E tạo chỉ là **review candidate**, chưa phải approved UI reference. Admin Reliability Hardening vẫn được giữ nguyên.
+## One Booking full lifecycle E2E — 2026-10-13
+
+Booking `1119` đã đi qua production API trên Supabase development theo một trace duy nhất: `PENDING_PAYMENT → PENDING_CONFIRMATION → CONFIRMED → CANCELLED`; PaymentProof `null → SUBMITTED → APPROVED`; Refund `null → PENDING → PROOF_SUBMITTED → REFUNDED`. Hai private Cloudinary proof tải được qua signed URL TTL 300 giây; final DB giữ 2 BookingSlot, 0 CourtSlotLock, đúng 1 PaymentProof/Refund và tiền 30/70 nhất quán. Terminal mutation, ownership, CSRF/Origin, private DTO và regression đều PASS. Evidence chi tiết tại [FULL_BOOKING_LIFECYCLE_E2E_AUDIT.md](reviews/FULL_BOOKING_LIFECYCLE_E2E_AUDIT.md).
+
+## Demo Payment/Refund proof assets — 2026-10-13
+
+Demo full-state dataset đã có binary PNG tổng hợp thật cho 24 PaymentProof và 4 Refund proof trong Cloudinary authenticated/private storage. Seed dùng stable managed namespace, đồng bộ byte metadata, dọn stale object trong đúng namespace và rerun không upload trùng; signed delivery của 28/28 object PASS. Runtime API xác minh PENDING_CONFIRMATION, CONFIRMED, Refund PENDING/PROOF_SUBMITTED/REFUNDED, anonymous rejection và DTO không lộ storage identifier. Không đổi schema, migration, API hay business state.
+
+## Owner Booking Detail visual redesign — 2026-10-13
+
+Route `/owner/bookings/:booking_id` đã được chuyển thành workspace vận hành với H1 chung **Chi tiết đặt sân**, bố cục desktop khoảng 68/32 và responsive stack trên tablet/mobile. Giao diện hỗ trợ đủ bảy Booking states, giữ đúng PaymentProof review, Confirm/Reject, Owner cancellation và Refund lifecycle; trạng thái read-only không để lại vùng action rỗng.
+
+Strict DTO validation, private signed proof URL, 409/unknown-result recovery, snapshot preservation, abort/generation guard, auth/ownership và CSRF/Origin được giữ nguyên. Targeted Owner Payment/Refund/Auth/Booking **128/128 PASS**; full frontend chạy tuần tự **325/325 PASS**; lint/build PASS. Backend, API, business logic, database, schema, migration và demo data không đổi.
+
+## Owner Booking List visual redesign — 2026-10-12
+
+Nội dung `/owner/bookings` đã được nâng cấp thành booking operations list trong Owner workspace shell approved. Header gồm eyebrow, H1, mô tả và status filter hiện hành; mỗi booking nhóm Customer/Booking ID, Facility/Court, lịch chơi, tiền cọc, semantic status và detail action. Phone chỉ hiển thị khi DTO có dữ liệu; không tạo fallback giả.
+
+Initial loading, blocking error, empty, filtered-empty, background refresh/error và pagination được trình bày riêng; background failure giữ snapshot gần nhất. Tablet/mobile chuyển row thành card, không ép desktop table hoặc tạo horizontal overflow. Targeted Owner Booking/Payment/Refund/Auth/Facility **107/107 PASS**, full frontend tuần tự **310/310 PASS**, lint/build PASS. Owner Booking Detail chưa được redesign trong phase này; backend/API/business logic/database/schema/migration/seed không đổi.
+
+## Owner Facility List visual redesign — 2026-10-11
+
+Vùng nội dung `/owner/facilities` đã được nâng cấp thành management list trong Owner workspace shell hiện hành: page eyebrow/H1/support copy/CTA có hierarchy rõ; Facility name là thông tin chính; địa điểm, giờ hoạt động, số sân, trạng thái và action được nhóm theo mục đích vận hành. Desktop dùng list/table hybrid, tablet/mobile chuyển từng Facility thành card và không tạo horizontal overflow.
+
+Phase này không tạo summary cards vì contract phân trang chỉ cung cấp tổng số Facility authoritative; tổng Court và số Facility theo trạng thái từ trang hiện tại không đại diện toàn bộ tài khoản. `meta.total` chỉ được dùng làm metadata của danh sách. Initial loading, background refresh, empty, blocking error và populated/stale-snapshot error đã được tách riêng; refetch nền không xóa dữ liệu đã xác minh. Targeted Owner/Auth **68/68 PASS**, full frontend tuần tự **307/307 PASS**, lint/build PASS. Không đổi backend, API, business logic, database/schema/migration, seed hoặc demo data.
+
+## Owner Workspace Shell Redesign Phase 1 — 2026-10-11
+
+Owner shell đã chuyển sang workspace operational dùng chung cho toàn bộ `/owner/*`: Header compact giữ brand/account/logout; từ Analytics Phase 3 sidebar có ba mục **Cơ sở của tôi**, **Đơn đặt sân**, **Thống kê**. Active state theo route thực và Facility route lồng nhau vẫn thuộc mục Facility. Tablet/mobile dùng navigation theo hàng ngang thay sidebar cố định; focus, `aria-current`, vùng bấm và reduced-motion theo product tokens hiện hành.
+
+Phase này chỉ thay shell/presentation. Nội dung Facility và Booking, `useOwnerRead`, capability guard, logout/role-switch, Payment/Cancel/Refund state machine, signed private asset, 409 recovery và unknown-result fail-closed giữ nguyên. Kiểm chứng targeted Owner/Auth/Refund **103/103 PASS**, full frontend **306/306 PASS**, lint/build PASS; không đổi backend/database/schema/migration/seed hoặc demo data. Redesign nội dung từng Owner page vẫn thuộc các phase sau.
+
+## Frontend data/loading reliability hardening — 2026-10-11
+
+Frontend API giữ timeout 20 giây và phân loại riêng `REQUEST_CANCELLED`, `REQUEST_TIMEOUT`, `NETWORK_ERROR`, HTTP/API error và `INVALID_RESPONSE`. Booking/Owner/Admin reads hủy request khi unmount/resource đổi, dùng generation để chặn stale commit và giữ snapshot đã xác minh trong background refetch; background failure giữ nội dung với lỗi có thể retry.
+
+PaymentProof/Refund proof private dùng `server_time` của DTO cộng elapsed monotonic từ lúc nhận response để theo dõi TTL. Expiry hoặc lần đầu `img.onerror` yêu cầu signed URL authoritative mới; lỗi ảnh lần hai dừng ổn định, có manual retry và không lộ URL/path trong message. Owner proof loader bảo vệ race booking A → B. Kiểm chứng frontend tuần tự **300/300 PASS**, targeted reliability/Payment/Refund/Booking/Auth/Owner PASS, lint/build PASS; không đổi backend/database/schema/migration/seed và không gọi dịch vụ thật.
+
+## Admin frontend reliability hardening — 2026-10-13
+
+Admin Facility list/detail/mutation dùng validator exact theo DTO backend và invariant metadata theo trạng thái; malformed 2xx không được commit như thành công. Facility, Owner Request và Amenity reads dùng AbortController cùng generation/resource key, giữ snapshot đã xác minh khi background refresh lỗi và không commit response cũ sau đổi resource/session. Mutation 409 hoặc kết quả không chắc chắn được đối chiếu lại bằng authoritative GET; nếu GET cũng lỗi, UI giữ snapshot, khóa mutation tiếp theo và cung cấp retry read. Amenity create không tự retry POST nên không tạo trùng khi kết quả transport chưa rõ. Kiểm chứng targeted Admin/Auth/API reliability **98/98 PASS**, full frontend **342/342 PASS**, lint/build và `git diff --check` PASS; không đổi backend/database/schema/migration và không chạy seed.
+
+## Auth role-switch redirect stabilization — 2026-10-11
+
+Logout đã xóa session/capability state và thay protected URL bằng `/login` không kèm redirect state. Login đọc lại session authoritative, kiểm tra destination theo capability mới và không phục hồi resource-scoped URL cần ownership của tài khoản trước; fallback lần lượt là Customer `/`, Owner `/owner/facilities`, Admin `/admin/facilities`. Regression bao phủ đủ sáu chiều CUSTOMER/OWNER/ADMIN và đổi giữa hai tài khoản cùng capability.
+
+## Owner CONFIRMED cancellation — implemented 2026-10-11
+
+`POST /api/v1/owner/bookings/:booking_id/cancel` đã triển khai cho Owner sở hữu Facility: chỉ `CONFIRMED` với PaymentProof `APPROVED`, reason bắt buộc 1–500 Unicode code points và không áp cutoff Customer. Transaction khóa User tăng dần → Facility → Court → Booking → PaymentProof → Refund, ghi `cancelled_by=OWNER` bằng DB time, tạo đúng một Refund `PENDING` bằng `deposit_amount`, nhả CourtSlotLock và giữ BookingSlot/PaymentProof nguyên vẹn; cross-owner 404, Origin/CSRF và race Owner/Owner, Owner/Customer đã được kiểm chứng.
+
+Route `/owner/bookings/:booking_id` đã triển khai reference `CURRENT/APPROVED` `owner-booking-confirmed-cancellation-desktop.png`: action chỉ hiện cho `CONFIRMED` + proof `APPROVED`, shared accessible modal hiển thị tiền hoàn chỉ đọc, reason/counter và destructive confirm. Frontend validate response exact, không optimistic update, refetch authoritative state sau success/409/unknown/malformed 2xx và tái sử dụng `OwnerRefundPanel`; không có Refund Center. Kiểm chứng: backend unit **59/59**, Payment/Owner/Refund PostgreSQL **22/22** với cleanup PASS, Booking PostgreSQL **19/19** với cleanup PASS, frontend targeted Owner/Refund **29/29**, full frontend **284/284**, lint/build PASS. Không đổi schema/migration, không seed/mutate demo data hoặc gọi dịch vụ ngoài thật.
+
 ## Refund workflow — implemented 2026-10-10
 
 Owner và Customer xử lý Refund ngay trong Booking Detail theo hai reference CURRENT/APPROVED. Backend có GET/POST theo `refund_id`, ownership 404, Origin/CSRF, private authenticated proof URL TTL 300 giây và state duy nhất `PENDING → PROOF_SUBMITTED → REFUNDED`. Proof JPEG/PNG tối đa 5 MB/25 triệu decoded pixels, immutable sau submit; Customer confirm ghi hai terminal timestamp bằng cùng DB time. Không có Refund Center/list/reject/dispute/replace/delete/resubmit.
 
-Kiểm chứng: backend unit **58/58 PASS**, Payment/Refund PostgreSQL **18/18 PASS**, Booking PostgreSQL **19/19 PASS**, toàn bộ integration regression và fixture cleanup PASS; frontend targeted **4/4**, full **274/274**, lint/build PASS. Không đổi schema/migration, không seed/mutate demo data và không gọi Cloudinary thật trong test.
+Kiểm chứng: backend unit **58/58 PASS**, Payment/Refund PostgreSQL **18/18 PASS**, Booking PostgreSQL **19/19 PASS**, toàn bộ integration regression và fixture cleanup PASS; frontend targeted **8/8**, full **278/278**, lint/build PASS. Không đổi schema/migration, không seed/mutate demo data và không gọi Cloudinary thật trong test.
 
 ## Cách đọc tài liệu này
 
@@ -300,7 +475,7 @@ P1/P2/P3 theo PROJECT_OVERVIEW. Cập nhật 2026-09-19: ưu tiên cancellation 
 | bookings | Booking detail/history | P1 | DONE | Chỉ Customer sở hữu; DTO whitelist, list pagination/order/effective status, detail phục hồi snapshot/countdown |
 | bookings | Owner quản lý booking | P1 | TODO | Chỉ Facility của mình |
 | bookings | Owner ghi nhận COMPLETED | P1 | TODO | Từ CONFIRMED sau end_at, đã dùng sân và xử lý 70% trực tiếp |
-| payments | Hướng dẫn chuyển khoản thủ công | P1 | DONE | Frontend hiển thị bank/QR snapshot, nội dung BOOKING <id>, fallback khi QR null; không gateway/bank scraping |
+| payments | Hướng dẫn chuyển khoản thủ công | P1 | DONE | V1 giữ nội dung `BOOKING <id>`; V2 dùng server-derived `CLDN <id>`; frontend hiển thị bank/QR snapshot và fallback khi QR null; không gateway/bank scraping |
 | payments | Upload/gửi payment proof backend | P1 | DONE | POST multipart; private authenticated storage; trước expires_at; PENDING_CONFIRMATION nguyên tử |
 | payments | Owner xác nhận cọc | P1 | DONE | Backend: SUBMITTED → APPROVED; booking CONFIRMED, giữ slot locks |
 | payments | Owner từ chối kèm lý do | P1 | DONE | Backend + Owner frontend: reason 1–500, Booking REJECTED, nhả slot |
@@ -504,3 +679,16 @@ Local npm test: 41/41 PASS. Booking PostgreSQL: 15/15 PASS (14 ca + suite cha), 
 Regression PostgreSQL: Auth13, Availability6, Booking Configuration13, Court12, Facility13, Owner Request10, Password10, Public Facility8 =85 test hoàn tất PASS. Lượt tổng hợp ban đầu có90 PASS/5 FAIL/2 CANCELLED vì Presentation vượt timeout900000ms sau khoảng thời gian chạy bị gián đoạn; không ghi nhận lượt đó là PASS. Đã chạy lại nguyên `node --test test/presentation.integration.js`:12/12 PASS, không đổi assertion/timeout/business rule. Tổng hợp các suite hoàn tất:97 test regression đã được xác minh PASS. Cleanup của lượt cũ và lượt chạy lại đều PASS; các fixture transaction của Auth/Password rollback. Không gửi email hoặc upload Cloudinary thật.
 
 HISTORICAL/SUPERSEDED — Booking Phase 1 ban đầu chỉ đánh dấu pricing/snapshot/create/hold/lazy-expiry/history/detail DONE. PaymentProof, Owner confirm/reject và frontend nay đã triển khai; confirmed cancellation, Refund, worker và CourtBlock CRUD vẫn deferred. Không package mới, schema/migration/.env/CA/TLS không đổi. BOOKING PHASE 1 BACKEND READY: YES.
+
+## Current update — Booking V2 State & Expiry Foundation (2026-10-15)
+Foundation source và migration additive đã hoàn tất: discriminator V1/V2, confirmation deadline 30 phút từ DB time, lazy expiry nguyên tử và Availability dual-read. Migration `20261015000000_booking_v2_foundation` đã apply lên Supabase DEVELOPMENT sau fingerprint/preflight; 47 Booking hiện hữu được giữ nguyên trạng thái và phân loại V1, PaymentProof/Refund/BookingSlot/CourtSlotLock giữ nguyên số lượng. PostgreSQL verification PASS: constraints V1/V2/FK, V2 trước hạn HELD, hết hạn EXPIRED + nhả lock, stale-hold replacement, concurrent create một winner, rollback nguyên tử và Availability query thật. Fixture `TEST_V2_` cleanup PASS; Booking #1119 giữ `CANCELLED`, proof `APPROVED`, refund `REFUNDED`, 2 slot và 0 lock. Regression: backend local 73/73, Booking V2 PostgreSQL 8/8, Availability 6/6, Booking 19/19, Payment 22/22, frontend tuần tự 375/375, lint/build/health/public API PASS. Rollout mặc định vẫn V1 (`BOOKING_FLOW_VERSION=1`); Payment/Refund V1 giữ nguyên, Owner confirm/reject V2 và Payment V2 vẫn deferred sang phase tương ứng.
+
+## Current update — Booking V2 Deposit / Bank Transfer Phase 2 (2026-10-15)
+
+Customer V2 đã có hướng dẫn chuyển cọc read-only từ Booking Detail: bank/QR snapshot, cọc 30%, còn lại 70%, transfer reference `CLDN <BOOKING_ID>` và countdown 30 phút theo server time. Frontend không render/gọi upload proof cho V2; expiry refetch server, `EXPIRED`/`CONFIRMED` có state riêng. Backend proof endpoint fail closed cho V2 trước storage/mutation; V1 PaymentProof compatibility giữ nguyên. Owner confirm/reject V2 vẫn chưa thuộc phase này.
+
+## Current update — Booking V2 Owner Confirm / Reject Phase 3 (2026-10-16)
+COMPLETE: Owner V2 confirm/reject API, DB-time expiry, ownership/security, audit metadata, occupancy/release invariants, Owner list quick actions/countdown và Owner detail actions. V1 PaymentProof flow giữ nguyên. Evidence: backend local 74/74; Booking V2 PostgreSQL 14/14 với fixture cleanup; Payment V1 PostgreSQL 22/22 với cleanup; frontend targeted 51/51 và Owner Payment 39/39; full frontend tuần tự 381/381; lint/build PASS. Không schema/migration/seed/demo mutation trong Phase 3.
+## Owner Analytics Phase 1 — Audit/Specification PASS (2026-10-17)
+
+Source/schema and a read-only development profile were audited. Owner Analytics now has an approved occurrence-based contract, V1/V2/recurring compatibility, financial terminology that does not mislabel booking value as received revenue, current-configuration capacity/utilization semantics, a 366-day local-date bound, aggregate-only DTOs, Owner isolation, and a bounded PostgreSQL query strategy. `docs/specs/OWNER_ANALYTICS_SPEC.md` is current. Analytics API/UI remain **DEFERRED** until Phase 2/3 implementation; no schema, migration, seed, or database mutation was performed.

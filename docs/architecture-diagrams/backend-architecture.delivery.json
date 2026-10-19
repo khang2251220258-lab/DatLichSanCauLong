@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "add0c8db-417a-4846-aadf-a43430c5c1b0",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\backend-architecture.json",
+  "output": "E:\\BOOKING SanTheThao\\docs\\architecture-diagrams\\backend-architecture.html",
+  "specification": {
+    "sha256": "936209562a70beab9146442a85654e1037ec915b137b6a4f5e2f07a86d26d2d6",
+    "bytes": 5134
+  },
+  "artifact": {
+    "sha256": "481a4667b6e1c702488088b68a357c26fa74648daf32f058231b46c4a56720eb",
+    "bytes": 822035
+  }
+}

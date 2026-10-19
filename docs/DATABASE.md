@@ -1,5 +1,11 @@
 # Database Design
 
+## Recurring Booking Phase 3 — transaction use of Phase 2 schema (2026-10-17)
+
+Không đổi schema/migration sau `20261017000000_recurring_booking_foundation`. Create dùng một transaction: User IDs tăng dần/deduplicate → Facility → Court → candidate BookingSeries theo ID → overlapping Booking IDs theo ID → recheck → tạo Series, batch child Booking V2, BookingSlot và CourtSlotLock. Mọi child dùng cùng DB-time deadline 30 phút; tiền tính child-first rồi mới cộng Series. Unique CourtSlotLock vẫn là hàng rào cuối và mọi conflict rollback toàn bộ.
+
+Owner confirm/reject và Customer/Owner detail khóa Series trước children theo thứ tự cố định. Exact deadline expire atomically Series + pending children, xóa locks và giữ BookingSlot history. Confirm giữ locks; reject xóa locks. Series/child bank, QR, Facility và Court snapshots bất biến; DTO không expose private path.
+
 ## Stabilization baseline — 2026-10-07
 
 Phase cleanup không đổi schema, migration, constraint hoặc dữ liệu. Các aggregate read model Public Facility, Availability và Owner Booking chỉ đọc các bảng/field đã có bằng SQL tham số hóa và DTO whitelist; không thêm index hay materialized view. Query budget và performance evidence nằm trong ARCHITECTURE/FEATURE_STATUS. Report vẫn hoãn.
@@ -373,3 +379,15 @@ Schema đủ theo PUBLIC_FACILITY_SPEC: facilities → owner_profiles → users 
 AVAILABILITY_SPEC.md dùng schema/index hiện hữu, không migration. Booking.status/expires_at và khoảng thời gian xác định occupancy hiệu lực; CourtBlock xác định block. BookingSlot là lịch sử, lock tồn tại không đủ kết luận còn giữ chỗ. Reader bỏ qua hold hết hạn/booking kết thúc dù lock vật lý còn; không cấp/nhả lock hoặc đổi state. Không coi booking hiệu lực là trống chỉ vì thiếu lock.
 
 Đọc theo Court/ngày trong snapshot nhất quán, một clock_timestamp() dùng toàn response; batch rules/blocks/booking, không N+1 theo slot. Có thể join lock→slot→booking nhưng phải giữ semantics hiệu lực; không quét lịch sử BookingSlot để coi mọi row là bận. Chưa benchmark, không index mới khi chưa có bằng chứng cần.
+
+## Booking V2 additive schema (migration offline 20261015000000)
+`bookings.booking_flow_version SMALLINT NOT NULL DEFAULT 1` phân biệt V1/V2; CHECK chỉ nhận 1 hoặc 2. `confirmation_expires_at TIMESTAMPTZ(3)` bắt buộc với V2 và phải NULL với V1. `confirmed_by_user_id BIGINT NULL` tham chiếu `users(id)` với RESTRICT; `confirmed_at` hiện hữu được giữ nguyên. Migration additive đã được tạo nhưng chưa apply vào Supabase trong Phase 1. `expires_at` vẫn non-null vì schema lịch sử; V2 không dùng trường này làm confirmation deadline.
+# Recurring Booking additive foundation (2026-10-17)
+
+Migration `20261017000000_recurring_booking_foundation` thêm `booking_series` và nullable `bookings.booking_series_id`; không backfill hay sửa lịch sử V1/V2. Series lưu recurrence ISO weekday 1..7, local TIME/date range, occurrence count, state quyết định ban đầu, shared confirmation deadline, aggregate money và Facility/Court/bank snapshots. FK đều RESTRICT. Child order dùng `start_at`; unique `(booking_series_id,start_at)` thay cho occurrence index. Phase 2 chưa tạo BookingSeries runtime.
+
+DB checks giữ weekday, half-hour/time range tối đa 3 giờ, inclusive range tối đa 93 ngày, occurrence count 1..14, four-state series status và money invariant. Search recurring không đọc bảng series và hoàn toàn read-only.
+
+## Owner Analytics Phase 2 query evidence (2026-10-17)
+
+Analytics uses the existing ownership, Court, Booking time/status, BookingSlot, Refund and CourtBlock indexes. It introduces no table, column, constraint, index, migration, transaction, or persistent cache. Final 30-day development plans after replacing per-slot correlated occupancy probes with set-based joins measured: facts 0.769 ms execution/90 shared hits, capacity 214.917 ms/105 shared hits, and Court performance 165.05 ms/119 shared hits, all with zero shared disk reads. The capacity plans are bounded by the 366-day range and current ACTIVE owned Court set. This evidence does not justify an index change at current volume; revisit only with representative production scale and a new EXPLAIN plan.

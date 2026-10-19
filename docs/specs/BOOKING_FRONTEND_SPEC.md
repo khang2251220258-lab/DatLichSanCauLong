@@ -1,5 +1,30 @@
 # Booking Frontend Phase 1
 
+## Customer Booking Detail — state-aware redesign contract
+
+Customer Booking Detail dùng `customer-home-desktop.png` làm visual baseline toàn cục và hai reference giao dịch `customer-booking-confirmed-cancellation-desktop.png`, `customer-booking-refund-desktop.png` làm reference CURRENT/APPROVED cho các state tương ứng. Không yêu cầu một PNG riêng cho từng Booking state. Implementation phải dùng ma trận dưới đây, API/spec và server state; không tự suy diễn behavior từ dữ liệu minh họa trong PNG.
+
+| Booking state | Status/message | Action khả dụng | Action không khả dụng | Payment/cost | Cancellation | Refund | Surface |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `PENDING_PAYMENT` | Chờ thanh toán; hiển thị hold còn lại theo server time | Đi tới Payment khi state đã xác minh và còn hạn | Không confirm/cancel CONFIRMED/refund | Snapshot total/deposit/remaining; countdown | Không hiện policy CONFIRMED trên Detail | Không có | Warning/countdown |
+| `PENDING_CONFIRMATION` | Đã gửi proof, chờ Owner | Không có mutation Customer | Không countdown, cancel, resubmit proof | Giữ snapshot cost; cọc đang chờ duyệt | Không hiện | Không có | Info |
+| `CONFIRMED` | Owner đã xác nhận cọc | Hủy nếu cutoff snapshot khác null và DB-time semantics còn đủ điều kiện | Không hủy khi null/đúng hoặc quá deadline; không payment lại | Snapshot cost; cọc đã xác nhận | Hiện cutoff, deadline, eligibility và modal cancel | Chưa có trước khi cancel | Success + policy/warning |
+| `COMPLETED` | Booking hoàn thành | Không có action Booking trong scope hiện tại | Không payment/cancel/refund mutation mới | Snapshot cost | Không hiện action | Không có trừ khi contract tương lai chốt khác | Success/terminal |
+| `CANCELLED` | Đã hủy; trình bày actor/time/reason nếu DTO cung cấp | Chỉ action của Refund state bên dưới | Không phục hồi booking hoặc payment lại | Snapshot cost | Hiện cancellation metadata, không hiện cancel action | `null` hoặc `PENDING/PROOF_SUBMITTED/REFUNDED` | Danger/terminal + Refund |
+| `REJECTED` | Payment proof bị Owner từ chối | Không có action trên booking cũ | Không resubmit proof; phải tạo booking mới ngoài màn hình này | Snapshot cost | Không hiện | Không có | Danger |
+| `EXPIRED` | Hết thời gian thanh toán | Không có mutation | Không payment/cancel/refund | Snapshot cost; không countdown hoạt động | Không hiện | Không có | Neutral/terminal |
+
+`CANCELLED` + Refund presentation:
+
+| Refund | Presentation/action Customer |
+| --- | --- |
+| `null` | Không có nghĩa vụ Refund trong contract hiện tại; không dựng panel giả |
+| `PENDING` | Hiển thị amount/reason/requested time; chờ Owner, Customer read-only |
+| `PROOF_SUBMITTED` | Đọc proof qua Refund Detail; signed URL tạm; Customer có thể confirm qua modal sau khi thực nhận tiền |
+| `REFUNDED` | Terminal/read-only; hiển thị proof và `refunded_at`, không còn confirm |
+
+Mọi mutation giữ exact response validation, Origin/CSRF, double-submit protection và authoritative refetch sau 409/network/5xx/unknown result. Unknown-result chỉ được mở khóa sau một refresh thành công đã validate; refresh lỗi hoặc response malformed tiếp tục fail-closed. Signed proof URL không được coi là vĩnh viễn: expiry tính từ `meta.server_time` và `proof_image_expires_at`; khi hết hạn phải ẩn URL/ảnh cũ và yêu cầu tải lại Refund Detail. Không polling, không endpoint mới, không expose storage path.
+
 ## Refund in Booking Detail — implemented 2026-10-10
 
 Refund UI dùng route Booking Detail hiện có, không tạo route Refund. Owner reference `owner-booking-refund-desktop.png` bao phủ Refund `PENDING`; Customer reference `customer-booking-refund-desktop.png` bao phủ `PROOF_SUBMITTED`. Cả hai UI phải hỗ trợ presentation `PENDING`, `PROOF_SUBMITTED`, `REFUNDED` theo server state. Booking Detail lấy Refund summary; proof URL tạm được lấy bằng Refund detail API theo `refund_id`.
