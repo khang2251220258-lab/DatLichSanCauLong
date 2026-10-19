@@ -44,7 +44,7 @@ it('renders the approved Facility context, current sidebar, breadcrumb and activ
   expect(await screen.findByRole('heading', { name: 'Cơ sở Fixture' })).toBeTruthy();
   expect(screen.getByText('30 Bạch Đằng, Đà Nẵng')).toBeTruthy();
   expect(screen.getByText('Đang hoạt động')).toBeTruthy();
-  expect(screen.getByLabelText('Quản lý chủ sân').querySelectorAll('a')).toHaveLength(2);
+  expect(screen.getByLabelText('Quản lý chủ sân').querySelectorAll('a')).toHaveLength(3);
   const hub = screen.getByLabelText('Cấu hình cơ sở');
   expect(hub.querySelectorAll('a')).toHaveLength(6);
   expect(screen.getByRole('link', { name: 'Chính sách hủy' }).getAttribute('aria-current')).toBe('page');

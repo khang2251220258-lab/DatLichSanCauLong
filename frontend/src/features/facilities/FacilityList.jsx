@@ -1,61 +1,46 @@
-import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router';
-import { api, errorMessage } from '../../services/api';
-import { facilityListResponse } from '../../services/responseValidators';
+import { useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { errorMessage } from '../../services/api';
+import { facilityListResponse, recurringSearchResponse } from '../../services/responseValidators';
+import { useAuth } from '../auth/useAuth';
 import { Header, Footer } from './PublicLayout';
 import districts from '../../generated/districts.json';
-import './facilities.css';
 import { FacilityCard } from './FacilityCard';
+import { usePublicRead } from './usePublicRead';
+import { addDays, intervalFrom, localSearchDate, resultDetailPath, timeOptions, validateSearchInterval } from './guestSearch';
+import './facilities.css';
 
-function Search({ params, apply, clear }) {
-  const [q, setQ] = useState(params.get('q') || '');
-  const [district, setDistrict] = useState(params.get('district') || '');
-  return <form className="fl-search" onSubmit={e => { e.preventDefault(); apply(q, district); }}>
-    <label>Tên sân<input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm theo tên sân..." /></label>
-    <label>Khu vực<select value={district} onChange={e => setDistrict(e.target.value)}><option value="">Tất cả khu vực</option>{district && !districts.includes(district) && <option value={district}>{district} (không hợp lệ)</option>}{districts.map(d => <option key={d}>{d}</option>)}</select></label>
-    <button className="fl-primary" type="submit">⌕ Tìm kiếm</button><button type="button" onClick={() => { setQ(''); setDistrict(''); clear(); }}>× Xóa bộ lọc</button>
-  </form>;
+const weekdays=[['1','Thứ Hai'],['2','Thứ Ba'],['3','Thứ Tư'],['4','Thứ Năm'],['5','Thứ Sáu'],['6','Thứ Bảy'],['7','Chủ Nhật']];
+function Search({params,apply,clear,mode,setMode,busy}){
+  const today=localSearchDate(),[q,setQ]=useState(params.get('q')||''),[district,setDistrict]=useState(params.get('district')||''),[date,setDate]=useState(params.get('date')||''),[startTime,setStartTime]=useState(params.get('start_time')||''),[endTime,setEndTime]=useState(params.get('end_time')||''),[weekday,setWeekday]=useState(params.get('weekday')||''),[startDate,setStartDate]=useState(params.get('start_date')||''),[endDate,setEndDate]=useState(params.get('end_date')||''),[error,setError]=useState('');
+  function submit(event){event.preventDefault();if(mode==='recurring'){if(!weekday||!startDate||!endDate||!startTime||!endTime){setError('Vui lòng nhập đầy đủ lịch cố định.');return;}if(endDate<startDate){setError('Ngày kết thúc phải từ ngày bắt đầu trở đi.');return;}setError('');apply({district,weekday,start_date:startDate,end_date:endDate,start_time:startTime,end_time:endTime});return;}if(date||startTime||endTime){const problem=validateSearchInterval({date,start_time:startTime,end_time:endTime},today);if(problem){setError(problem);return;}}setError('');apply({q,district,date,start_time:startTime,end_time:endTime});}
+  function reset(){setQ('');setDistrict('');setDate('');setWeekday('');setStartDate('');setEndDate('');setStartTime('');setEndTime('');setError('');clear();}
+  const districtField=<label>Khu vực<select value={district} onChange={event=>setDistrict(event.target.value)}><option value="">Tất cả khu vực</option>{district&&!districts.includes(district)&&<option value={district}>{district} (không hợp lệ)</option>}{districts.map(value=><option key={value}>{value}</option>)}</select></label>;
+  return <div className="fl-search-workspace"><div className="fl-mode" role="group" aria-label="Chế độ tìm sân"><button type="button" aria-pressed={mode==='single'} onClick={()=>setMode('single')}>Đặt sân một lần</button><button type="button" aria-pressed={mode==='recurring'} onClick={()=>setMode('recurring')}>Đặt lịch cố định</button></div>
+    {mode==='recurring'&&<p className="fl-mode-description">Đặt cùng một khung giờ vào một thứ cố định trong nhiều tuần.</p>}
+    <form className={'fl-search '+(mode==='recurring'?'fl-search-recurring':'')} onSubmit={submit} noValidate>
+      <div className="fl-search-title"><p>{mode==='recurring'?'LỊCH CHƠI ĐỊNH KỲ':'TÌM SÂN'}</p><h2>{mode==='recurring'?'Tìm lịch cố định':'Tìm sân phù hợp'}</h2></div>
+      {mode==='single'?<div className="fl-search-single-fields"><label>Tên sân<input value={q} onChange={event=>setQ(event.target.value)} placeholder="Tìm theo tên sân..." /></label>{districtField}<label>Ngày chơi<input aria-label="Ngày chơi" type="date" min={today} max={addDays(today,30)} value={date} onChange={event=>setDate(event.target.value)}/></label><label>Giờ bắt đầu<select aria-label="Giờ bắt đầu" value={startTime} onChange={event=>setStartTime(event.target.value)}><option value="">Chọn giờ</option>{timeOptions.map(value=><option key={value}>{value}</option>)}</select></label><label>Giờ kết thúc<select aria-label="Giờ kết thúc" value={endTime} onChange={event=>setEndTime(event.target.value)}><option value="">Chọn giờ</option>{timeOptions.map(value=><option key={value}>{value}</option>)}</select></label></div>:<div className="fl-recurring-fields">
+        <div className="fl-recurring-basics">{districtField}<label>Thứ trong tuần<select value={weekday} onChange={event=>setWeekday(event.target.value)}><option value="">Chọn thứ</option>{weekdays.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label></div>
+        <fieldset className="fl-range-group"><legend>Khoảng ngày</legend><div><label>Ngày bắt đầu<input type="date" min={today} value={startDate} onChange={event=>setStartDate(event.target.value)}/></label><span aria-hidden="true">→</span><label>Ngày kết thúc<input type="date" min={startDate||today} max={startDate?addDays(startDate,92):undefined} value={endDate} onChange={event=>setEndDate(event.target.value)}/></label></div></fieldset>
+        <fieldset className="fl-range-group"><legend>Khung giờ</legend><div><label>Giờ bắt đầu<select aria-label="Giờ bắt đầu" value={startTime} onChange={event=>setStartTime(event.target.value)}><option value="">Chọn giờ</option>{timeOptions.map(value=><option key={value}>{value}</option>)}</select></label><span aria-hidden="true">→</span><label>Giờ kết thúc<select aria-label="Giờ kết thúc" value={endTime} onChange={event=>setEndTime(event.target.value)}><option value="">Chọn giờ</option>{timeOptions.map(value=><option key={value}>{value}</option>)}</select></label></div></fieldset>
+      </div>}
+      {mode==='recurring'&&<aside className="fl-recurring-hint"><span aria-hidden="true">ⓘ</span><div><strong>Lịch cố định</strong><p>Tối đa 14 buổi trong 93 ngày, mỗi buổi tối đa 3 giờ. Chỉ hiển thị sân đáp ứng toàn bộ lịch đã chọn.</p></div></aside>}
+      {error&&<p className="fl-search-error" role="alert">{error}</p>}
+      <div className="fl-search-actions"><button className="fl-clear" type="button" onClick={reset}>× Xóa bộ lọc</button><button className="fl-primary" type="submit" aria-busy={busy}>{mode==='recurring'?(busy?'Đang tìm sân…':'⌕ Tìm sân phù hợp'):'⌕ Tìm kiếm'}</button></div>
+    </form>
+  </div>;
 }
-export function FacilityList() {
-  const [params, setParams] = useSearchParams();
-  const query = params.toString();
-  const [attempt, setAttempt] = useState(0);
-  const [completed, setCompleted] = useState(null);
-  const requestKey = query + ':' + attempt;
-  const loading = completed?.key !== requestKey;
-  const result = completed?.value;
-  const error = loading ? null : completed?.error;
-  useEffect(() => {
-    const controller = new AbortController();
-    let current = true;
-    const request = new URLSearchParams(query);
-    if (!request.get('q')?.trim() && request.getAll('q').length <= 1) request.delete('q');
-    if (request.get('district') === '' && request.getAll('district').length === 1) request.delete('district');
-    api('/facilities' + (request.size ? '?' + request : ''), { signal: controller.signal, validate:facilityListResponse })
-      .then(value => { if (current) setCompleted({ key: requestKey, value }); })
-      .catch(error => { if (current) setCompleted({ key: requestKey, error }); });
-    return () => { current = false; controller.abort(); };
-  }, [query, requestKey]);
-  function apply(q, district) {
-    const next = new URLSearchParams();
-    if (q.trim()) next.set('q', q.trim().normalize('NFC'));
-    if (district) next.set('district', district.trim().normalize('NFC'));
-    next.set('page', '1');
-    if (params.has('page_size')) next.set('page_size', params.get('page_size'));
-    setParams(next);
-    if (next.toString() === query) setAttempt(v => v + 1);
-  }
-  const meta = result?.meta;
-  const pages = meta ? Math.ceil(meta.total / meta.page_size) : 0;
-  function turn(page) {
-    if (loading || page < 1 || page > pages) return;
-    const next = new URLSearchParams(params); next.set('page', String(page)); setParams(next);
-  }
-  return <div className="fl-page"><Header /><main className="fl-main"><section className="fl-intro"><h1>Tìm sân cầu lông</h1><p>Khám phá các sân cầu lông tại Đà Nẵng</p></section>
-    <section className="fl-content"><Search key={query} params={params} apply={apply} clear={() => apply('', '')} />
-      <h2>Danh sách sân</h2><div aria-busy={loading}>
-        {loading ? <><p role="status">{result ? 'Đang cập nhật kết quả…' : 'Đang tải danh sách sân…'}</p><div className="fl-grid" aria-hidden="true">{[1, 2, 3].map(n => <div key={n} className="fl-skeleton" />)}</div></> : error ? <div className="fl-state" role="alert"><p>{error.code === 'INVALID_DISTRICT' ? 'Khu vực không hợp lệ.' : error.code === 'VALIDATION_ERROR' || error.code === 'FILTER_NOT_CONFIGURED' ? 'Tham số tìm kiếm không hợp lệ hoặc chưa được hỗ trợ.' : errorMessage(error)}</p><button onClick={() => setAttempt(v => v + 1)}>Thử lại</button><button onClick={() => setParams({})}>Xóa bộ lọc</button></div> : !result?.data.length ? <div className="fl-state"><p role="status">Không tìm thấy sân phù hợp</p><button onClick={() => apply('', '')}>Xóa bộ lọc</button></div> : <div className="fl-grid">{result.data.map(f => <FacilityCard key={f.id + (f.cover_image_url || '')} facility={f} />)}</div>}
-      </div>
-      {!loading && !error && meta && pages > 0 && <nav className="fl-pagination" aria-label="Phân trang"><button aria-label="Trang trước" disabled={meta.page <= 1} onClick={() => turn(meta.page - 1)}>‹</button><span aria-current="page">{meta.page}</span><span>/ {pages}</span><button aria-label="Trang sau" disabled={meta.page >= pages} onClick={() => turn(meta.page + 1)}>›</button></nav>}
-    </section></main><Footer /></div>;
+
+export function FacilityList(){
+  const auth=useAuth(),navigate=useNavigate(),[params,setParams]=useSearchParams(),query=params.toString(),recurring=params.get('mode')==='recurring',recurringReady=['weekday','start_date','end_date','start_time','end_time'].every(key=>params.get(key)),interval=intervalFrom(params),intervalMode=Boolean(interval);
+  const path=(()=>{if(recurring&&!recurringReady)return null;const request=new URLSearchParams(query);request.delete('mode');if(!request.get('q')?.trim()&&request.getAll('q').length<=1)request.delete('q');if(request.get('district')===''&&request.getAll('district').length===1)request.delete('district');return (recurring?'/facilities/recurring-search':'/facilities')+(request.size?'?'+request:'');})();
+  const validate=useMemo(()=>recurring?recurringSearchResponse:envelope=>facilityListResponse(envelope,intervalMode),[recurring,intervalMode]),read=usePublicRead(path,validate),result=read.value,meta=result?.meta,pages=meta?Math.ceil(meta.total/meta.page_size):0;
+  function apply(values){const next=new URLSearchParams();if(recurring)next.set('mode','recurring');if(values.q?.trim())next.set('q',values.q.trim().normalize('NFC'));if(values.district)next.set('district',values.district.trim().normalize('NFC'));for(const key of recurring?['weekday','start_date','end_date','start_time','end_time']:['date','start_time','end_time'])if(values[key])next.set(key,values[key]);next.set('page','1');if(params.has('page_size'))next.set('page_size',params.get('page_size'));setParams(next);if(next.toString()===query)void read.refresh();}
+  function choose(facility,court){const intent=new URLSearchParams({court_id:court.id,weekday:params.get('weekday'),start_date:params.get('start_date'),end_date:params.get('end_date'),start_time:params.get('start_time'),end_time:params.get('end_time')});const destination=`/facilities/${facility.id}/recurring-confirm?${intent}`;if(auth.status==='authenticated')navigate(destination);else navigate('/login',{state:{from:destination}});}
+  function turn(page){if(read.loading||page<1||page>pages)return;const next=new URLSearchParams(params);next.set('page',String(page));setParams(next);}
+  return <div className="fl-page"><Header/><main className="fl-main"><section className="fl-intro"><p className="fl-intro-kicker">KHÁM PHÁ SÂN CHƠI</p><h1>Tìm sân cầu lông</h1><p>Tìm sân trống theo thời gian và khu vực tại Đà Nẵng.</p></section><section className="fl-content"><Search key={query} params={params} apply={apply} clear={()=>setParams(recurring?{mode:'recurring'}:{})} mode={recurring?'recurring':'single'} setMode={mode=>setParams(mode==='recurring'?{mode:'recurring'}:{})} busy={read.loading}/><div className="fl-results-heading"><div><p>{recurring?'KẾT QUẢ LỊCH CỐ ĐỊNH':'KẾT QUẢ TÌM KIẾM'}</p><h2>{recurring?'Sân phù hợp với toàn bộ lịch cố định':interval?'Sân phù hợp với thời gian đã chọn':'Danh sách sân'}</h2>{recurring&&recurringReady&&<span>Các sân dưới đây còn trống trong tất cả các buổi bạn đã chọn.</span>}</div>{recurring&&result?.meta&&<strong>{result.meta.occurrence_count} buổi <span aria-hidden="true">•</span> {result.meta.total} sân phù hợp</strong>}</div>
+    {read.busy&&result&&<p role="status">Đang cập nhật kết quả…</p>}{read.refreshError&&result&&<div className="fl-state" role="alert"><p>Không thể cập nhật dữ liệu mới nhất. Danh sách gần nhất vẫn được giữ lại.</p><button onClick={()=>void read.refresh()}>Thử lại</button></div>}
+    <div aria-busy={read.loading}>{recurring&&!recurringReady?<div className="fl-state fl-instruction-state"><span aria-hidden="true">⌕</span><h3>Tìm sân cho lịch cố định của bạn</h3><p>Chọn khu vực, thứ trong tuần, khoảng ngày và khung giờ. Hệ thống sẽ tìm những sân còn trống trong toàn bộ lịch đó.</p></div>:read.loading?<><p role="status">Đang tải danh sách sân…</p><div className="fl-grid" aria-hidden="true">{[1,2,3].map(value=><div key={value} className="fl-skeleton"/>)}</div></>:read.error?<div className="fl-state fl-result-state" role="alert"><h3>Không thể tải kết quả</h3><p>{read.error.code==='INVALID_DISTRICT'?'Khu vực không hợp lệ.':read.error.code==='INVALID_RECURRENCE'||read.error.code==='RECURRENCE_TOO_LONG'?'Lịch cố định không hợp lệ hoặc vượt giới hạn.':read.error.code==='VALIDATION_ERROR'||read.error.code==='FILTER_NOT_CONFIGURED'?'Tham số tìm kiếm không hợp lệ hoặc chưa được hỗ trợ.':errorMessage(read.error)}</p><button onClick={()=>void read.refresh()}>Thử lại</button><button onClick={()=>setParams(recurring?{mode:'recurring'}:{})}>Xóa bộ lọc</button></div>:!result?.data.length?<div className="fl-state fl-result-state"><span aria-hidden="true">◇</span><h3>{recurring?'Không tìm thấy sân phù hợp':interval?'Không tìm thấy sân phù hợp với thời gian đã chọn':'Không tìm thấy sân phù hợp'}</h3><p role="status">{recurring?'Thử thay đổi khu vực, khoảng ngày hoặc khung giờ.':interval?'Hãy thử thay đổi khu vực, ngày hoặc khung giờ.':'Hãy thử thay đổi tên sân hoặc khu vực.'}</p><button onClick={()=>setParams(recurring?{mode:'recurring'}:{})}>Xóa bộ lọc</button></div>:<div className="fl-grid">{result.data.map((facility,index)=><FacilityCard key={facility.id+(facility.cover_image_url||'')} facility={facility} eager={index===0} detailPath={resultDetailPath(facility,params)} recurring={recurring?{weekday:params.get('weekday'),start_date:params.get('start_date'),end_date:params.get('end_date'),start_time:params.get('start_time'),end_time:params.get('end_time'),occurrence_count:result.meta.occurrence_count}:null} onRecurringCourt={court=>choose(facility,court)}/>)}</div>}</div>
+    {!read.loading&&!read.error&&meta&&pages>0&&<nav className="fl-pagination" aria-label="Phân trang"><button aria-label="Trang trước" disabled={meta.page<=1} onClick={()=>turn(meta.page-1)}>‹</button><span aria-current="page">{meta.page}</span><span>/ {pages}</span><button aria-label="Trang sau" disabled={meta.page>=pages} onClick={()=>turn(meta.page+1)}>›</button></nav>}</section></main><Footer/></div>;
 }

@@ -1,0 +1,6 @@
+.admin-read-warning,.admin-unresolved{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0;padding:12px 14px;border:1px solid #f2c66d;border-radius:10px;background:#fff8e8;color:#704b00}
+.admin-read-warning button,.admin-unresolved button{min-height:42px;border:1px solid currentColor;border-radius:8px;background:#fff;padding:8px 12px;color:inherit;font:inherit;font-weight:700;cursor:pointer}
+.admin-read-sync{margin:12px 0;color:#526159;font-size:.9rem}
+.admin-read-warning button:focus-visible,.admin-unresolved button:focus-visible{outline:3px solid #86efac;outline-offset:2px}
+@media(max-width:560px){.admin-read-warning,.admin-unresolved{align-items:flex-start;flex-direction:column}.admin-read-warning button,.admin-unresolved button{width:100%}}
+@media(prefers-reduced-motion:reduce){.admin-read-warning *,.admin-read-sync{scroll-behavior:auto!important;transition:none!important}}

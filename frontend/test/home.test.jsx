@@ -19,23 +19,24 @@ it('Home replaces scaffold with real list DTO, correct query, header active, no 
   const calls=setup();mount();await screen.findByRole('heading',{name:'Home fixture'});
   expect(calls.find(u=>u.pathname.endsWith('/facilities')).search).toBe('?page=1&page_size=4');
   const nav=screen.getByRole('navigation',{name:'Điều hướng chính'});expect(within(nav).getByText('Trang chủ').getAttribute('aria-current')).toBe('page');expect(within(nav).getByText('Tìm sân').getAttribute('aria-current')).toBeNull();
-  expect(screen.getByRole('link',{name:'Xem chi tiết'}).getAttribute('href')).toBe('/facilities/72');
+  expect(screen.getByRole('link',{name:'Xem sân'}).getAttribute('href')).toBe('/facilities/72');
   expect(screen.getByRole('link',{name:'Đăng nhập'}).getAttribute('href')).toBe('/login');
   expect(screen.queryByText(/Khung ứng dụng|Sân nổi bật|42\+|180\+|3.800\+|Còn sân|realtime|số 1/)).toBeNull();
-  expect(screen.getByLabelText('Ngày chơi').disabled).toBe(true);expect(screen.getByLabelText('Giờ bắt đầu').disabled).toBe(true);
+  expect(screen.getByLabelText('Ngày chơi').disabled).toBe(false);expect(screen.getByLabelText('Giờ bắt đầu').disabled).toBe(false);expect(screen.getByLabelText('Giờ kết thúc')).toBeTruthy();
 });
-it.each(['',districts[25]])('district search navigates with only supported query %s',async district=>{
+it.each(['',districts[25]])('search navigates with complete interval and optional district %s',async district=>{
   setup();mount();await screen.findByRole('heading',{name:'Home fixture'});fireEvent.change(screen.getByLabelText('Khu vực'),{target:{value:district}});fireEvent.click(screen.getByRole('button',{name:'⌕ Tìm sân'}));
-  await waitFor(()=>expect(screen.getByTestId('home-location').textContent).toBe('/facilities'+(district?'?'+new URLSearchParams({district}):'')));
+  await waitFor(()=>{const location=new URL(screen.getByTestId('home-location').textContent,'http://app.local');expect(location.pathname).toBe('/facilities');expect(location.searchParams.get('date')).toMatch(/^\d{4}-\d{2}-\d{2}$/);expect(location.searchParams.get('start_time')).toBe('18:00');expect(location.searchParams.get('end_time')).toBe('19:00');expect(location.searchParams.get('district')).toBe(district||null);});
   const nav=screen.getByRole('navigation',{name:'Điều hướng chính'});expect(within(nav).getByText('Tìm sân').getAttribute('aria-current')).toBe('page');
 });
+it('rejects an invalid time range before navigation',async()=>{setup();mount();await screen.findByRole('heading',{name:'Home fixture'});fireEvent.change(screen.getByLabelText('Giờ kết thúc'),{target:{value:'18:00'}});fireEvent.click(screen.getByRole('button',{name:'⌕ Tìm sân'}));expect((await screen.findByRole('alert')).textContent).toContain('30 phút');expect(screen.getByTestId('home-location').textContent).toBe('/');});
 it('area uses canonical registry and navigates',async()=>{
   setup();mount();await screen.findByRole('heading',{name:'Home fixture'});const link=screen.getByRole('link',{name:districts[4]});fireEvent.click(link);await waitFor(()=>expect(screen.getByTestId('home-location').textContent).toBe('/facilities?'+new URLSearchParams({district:districts[4]})));
 });
 it('loading, error and empty are separate and retry works',async()=>{
-  let resolve;setup({list:()=>new Promise(r=>{resolve=r;})});mount();expect(screen.getByText('Đang tải danh sách sân…')).toBeTruthy();
-  resolve(new Response(JSON.stringify({error:{code:'SERVICE_UNAVAILABLE'}}),{status:503}));await screen.findByRole('alert');expect(screen.queryByText('Chưa có cơ sở để hiển thị.')).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'Thử lại danh sách'}));await waitFor(()=>expect(screen.getByText('Đang tải danh sách sân…')).toBeTruthy());resolve(ok([]));await screen.findByText('Chưa có cơ sở để hiển thị.');
+  let resolve;setup({list:()=>new Promise(r=>{resolve=r;})});mount();expect(screen.getByText('Đang tải danh sách sân…')).toBeTruthy();await waitFor(()=>expect(resolve).toBeTypeOf('function'));
+  resolve(new Response(JSON.stringify({error:{code:'SERVICE_UNAVAILABLE'}}),{status:503}));await screen.findByRole('alert');expect(screen.queryByText('Chưa có cơ sở để giới thiệu')).toBeNull();
+  resolve=undefined;fireEvent.click(screen.getByRole('button',{name:'Thử lại danh sách'}));await waitFor(()=>expect(screen.getByText('Đang tải danh sách sân…')).toBeTruthy());await waitFor(()=>expect(resolve).toBeTypeOf('function'));resolve(ok([]));await screen.findByText('Chưa có cơ sở để giới thiệu');
 });
 it.each([{capabilities:['CUSTOMER']},{capabilities:['CUSTOMER','OWNER']},{capabilities:['ADMIN']}])('Owner CTA respects capabilities $capabilities without mutation',async({capabilities})=>{
   const calls=setup({capabilities});mount();await screen.findByText('Tên thật fixture');
@@ -48,4 +49,14 @@ it.each([{capabilities:['CUSTOMER']},{capabilities:['CUSTOMER','OWNER']},{capabi
 it('session error does not become guest or prevent public list',async()=>{
   setup({sessionFailure:true});mount();await screen.findByRole('heading',{name:'Home fixture'});expect(screen.getByText('Chưa thể kiểm tra phiên')).toBeTruthy();expect(screen.queryByRole('link',{name:'Đăng nhập'})).toBeNull();
 });
-it('malformed successful Facility list becomes an error instead of empty or crash',async()=>{setup({list:()=>new Response(JSON.stringify({data:null,meta:{page:1,page_size:4,total:0}}),{status:200})});mount();expect(await screen.findByRole('alert')).toBeTruthy();expect(screen.queryByText('Chưa có cơ sở để hiển thị.')).toBeNull();});
+it('malformed successful Facility list becomes an error instead of empty or crash',async()=>{setup({list:()=>new Response(JSON.stringify({data:null,meta:{page:1,page_size:4,total:0}}),{status:200})});mount();expect(await screen.findByRole('alert')).toBeTruthy();expect(screen.queryByText('Chưa có cơ sở để giới thiệu')).toBeNull();});
+
+it('renders the Home card variant with bounded amenities, long-name safety and no invented price',async()=>{
+  const amenities=[1,2,3,4,5].map(id=>({id:String(id),name:`Tiện ích ${id}`}));
+  setup({list:()=>ok([{...fixture,name:'Tên cơ sở cầu lông demo rất dài để kiểm tra bố cục thẻ trên trang chủ',amenities}])});mount();
+  await screen.findByRole('heading',{name:/Tên cơ sở cầu lông demo rất dài/});
+  expect(screen.getByRole('link',{name:'Xem sân'}).getAttribute('href')).toBe('/facilities/72');
+  expect(screen.getByRole('list',{name:'Tiện ích'}).children).toHaveLength(4);
+  expect(screen.getByText('+2 tiện ích')).toBeTruthy();
+  expect(screen.queryByText(/Từ .*\/ giờ|80\.000|giá\/giờ/i)).toBeNull();
+});

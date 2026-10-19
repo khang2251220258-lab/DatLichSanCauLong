@@ -11,7 +11,14 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:recurring-customer": "node scripts/run-recurring-customer-e2e.js",
+    "test:e2e:owner-analytics": "node scripts/run-owner-analytics-e2e.js",
+    "test:e2e:release": "node scripts/run-release-rehearsal.js"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -19,7 +26,9 @@
     "react-router": "^8.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",

@@ -13,10 +13,11 @@ export async function api(path, { method = 'GET', body, csrfToken, signal, valid
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
   if (!['GET', 'HEAD'].includes(method) && csrfToken) headers['X-CSRF-Token'] = csrfToken;
   const controller = new AbortController();
+  let timedOut = false;
   const abort = () => controller.abort();
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, { once: true });
-  const timer = setTimeout(abort, 20000);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
   try {
     const response = await fetch(base.replace(/\/$/, '') + path, {
       method, headers, credentials: 'include', signal: controller.signal,
@@ -30,7 +31,9 @@ export async function api(path, { method = 'GET', body, csrfToken, signal, valid
     return envelope;
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    throw new ApiError(0, signal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR');
+    if (timedOut) throw new ApiError(0, 'REQUEST_TIMEOUT');
+    if (signal?.aborted) throw new ApiError(0, 'REQUEST_CANCELLED');
+    throw new ApiError(0, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
@@ -48,6 +51,8 @@ const messages = {
   SESSION_EXPIRED: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
   API_NOT_CONFIGURED: 'Kết nối API chưa được cấu hình.',
   INVALID_RESPONSE: 'Dữ liệu máy chủ trả về không hợp lệ. Vui lòng thử lại.',
+  REQUEST_TIMEOUT: 'Yêu cầu mất quá nhiều thời gian. Vui lòng thử lại.',
+  REQUEST_CANCELLED: 'Yêu cầu đã được hủy.',
   NETWORK_ERROR: 'Không thể kết nối máy chủ. Vui lòng kiểm tra kết nối và thử lại.',
   BOOKING_EXPIRED: 'Thời gian gửi minh chứng đã hết.',
   PROOF_ALREADY_SUBMITTED: 'Booking đã nhận một minh chứng thanh toán.',

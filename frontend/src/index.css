@@ -1,3 +1,5 @@
 ﻿:root { font-family: system-ui, sans-serif; color: #1e293b; background: #f8fafc; line-height: 1.6; }
 body { margin: 0; min-width: 320px; }
 * { box-sizing: border-box; }
+.route-loading { min-height: 45vh; display: grid; place-items: center; padding: 2rem; color: #52645b; }
+.route-loading p { margin: 0; font-weight: 650; }

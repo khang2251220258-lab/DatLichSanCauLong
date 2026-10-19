@@ -7,6 +7,7 @@ import './owner-management.css';
 import { arrayResponse, detailResponse, listResponse } from '../../services/responseValidators';
 import { AccessibleModal } from '../../components/AccessibleModal';
 import { facilityStatusLabels } from '../../domain/statusLabels';
+import { protectedIdentity, readProtectedSnapshot, writeProtectedSnapshot } from '../../services/protectedReadCache';
 
 const facilityLabels = facilityStatusLabels;
 const courtLabels = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Tạm ngưng' };
@@ -42,23 +43,34 @@ function StatusBadge({ status, type = 'facility' }) { const labels = type === 'c
 
 export function OwnerFacilityList() {
   const [params, setParams] = useSearchParams(), page = Math.max(1, Number(params.get('page')) || 1);
-  const read = useOwnerRead(`/owner/facilities?page=${page}&page_size=20`, listResponse), rows = useMemo(() => read.data?.data || [], [read.data]), auth = useOwnerApi();
+  const read = useOwnerRead(`/owner/facilities?page=${page}&page_size=20`, listResponse, { cache:true }), rows = useMemo(() => read.data?.data || [], [read.data]), auth = useOwnerApi();
+  const identity = protectedIdentity(auth.user);
   const [counts, setCounts] = useState({});
   useEffect(() => {
-    if (!rows.length) return;
+    if (!rows.length) { setCounts({}); return; }
     let active = true;
-    Promise.all(rows.map(async facility => {
-      try { const result = await auth.request(`/owner/facilities/${facility.id}/courts?page=1&page_size=1`); return [facility.id, result.meta.total]; }
+    const paths = rows.map(facility => [facility, `/owner/facilities/${facility.id}/courts?page=1&page_size=1`]);
+    const cached = Object.fromEntries(paths.flatMap(([facility,path]) => {
+      const value = readProtectedSnapshot(identity, path);
+      return value ? [[facility.id, value]] : [];
+    }));
+    setCounts(cached);
+    Promise.all(paths.filter(([facility]) => !Object.hasOwn(cached, facility.id)).map(async ([facility,path]) => {
+      try { const result = await auth.request(path); writeProtectedSnapshot(identity, path, result.meta.total); return [facility.id, result.meta.total]; }
       catch { return [facility.id, null]; }
-    })).then(entries => { if (active) setCounts(Object.fromEntries(entries)); });
+    })).then(entries => { if (active) setCounts(current => ({ ...current, ...Object.fromEntries(entries) })); });
     return () => { active = false; };
-  }, [auth, rows]);
-  return <OwnerLayout><div className="om-heading"><h1>Cơ sở của tôi</h1><Link className="om-primary" to="/owner/facilities/new">+ Thêm cơ sở</Link></div>
-    <State loading={read.loading} error={read.error} empty={!rows.length} retry={read.refresh}>
-      <div className="om-table facility"><div className="om-row om-head"><span>Tên cơ sở</span><span>Địa chỉ</span><span>Khu vực</span><span>Giờ hoạt động</span><span>Số sân</span><span>Trạng thái</span><span/></div>
-        {rows.map(f => <div className="om-row" key={f.id}><strong data-label="Cơ sở">{f.name}</strong><span data-label="Địa chỉ">{f.address}</span><span data-label="Khu vực">{f.district}</span><span data-label="Giờ hoạt động">{f.opening_time}–{f.closing_time}</span><span data-label="Số sân">{counts[f.id] ?? '—'}</span><span data-label="Trạng thái"><StatusBadge status={f.status}/></span><Link className="om-outline" to={`/owner/facilities/${f.id}`}>Chi tiết</Link></div>)}
-      </div><OwnerPager meta={read.data?.meta || { page: 1, page_size: 20, total: 0 }} onPage={next => setParams(next > 1 ? { page: String(next) } : {})}/>
-    </State>
+  }, [auth, identity, rows]);
+  const hasSnapshot = Boolean(read.data);
+  return <OwnerLayout><header className="ofl-heading"><div><span className="ofl-eyebrow">Quản lý cơ sở</span><h1>Cơ sở của tôi</h1><p>Theo dõi thông tin, trạng thái duyệt và cấu hình vận hành của từng cơ sở.</p></div><Link className="om-primary ofl-create" to="/owner/facilities/new"><span aria-hidden="true">＋</span> Thêm cơ sở</Link></header>
+    {read.loading && !hasSnapshot ? <div className="ofl-loading" role="status" aria-label="Đang tải danh sách cơ sở"><div className="ofl-loading-head"><span/><span/></div>{[0,1,2].map(item => <div className="ofl-skeleton" key={item} aria-hidden="true"><span/><span/><span/><span/></div>)}</div>
+      : read.error && !hasSnapshot ? <div className="ofl-state ofl-state-error" role="alert"><span className="ofl-state-icon" aria-hidden="true">!</span><div><h2>Chưa thể tải danh sách cơ sở</h2><p>{ownerError(read.error)}</p></div><button className="om-outline" onClick={read.refresh}>Thử lại</button></div>
+      : !rows.length ? <div className="ofl-state ofl-state-empty"><span className="ofl-state-icon" aria-hidden="true">⌂</span><div><h2>Chưa có cơ sở</h2><p>Tạo cơ sở đầu tiên để bắt đầu thiết lập sân và thông tin vận hành.</p></div><Link className="om-primary" to="/owner/facilities/new">Thêm cơ sở</Link></div>
+      : <><div className="ofl-list-head"><div><h2>Danh sách cơ sở</h2><p>{read.data.meta.total} cơ sở trong tài khoản của bạn</p></div>{read.busy && <span className="ofl-sync" role="status"><i aria-hidden="true"/>Đang cập nhật…</span>}</div>
+        {read.error && <div className="ofl-refresh-error" role="alert"><span>Không thể cập nhật dữ liệu mới nhất. Danh sách gần nhất vẫn được giữ lại.</span><button onClick={read.refresh}>Thử lại</button></div>}
+        <div className="om-table facility ofl-table" role="table" aria-label="Danh sách cơ sở"><div className="om-row om-head" role="row"><span role="columnheader">Cơ sở</span><span role="columnheader">Địa điểm</span><span role="columnheader">Vận hành</span><span role="columnheader">Trạng thái</span><span role="columnheader" className="ofl-action-label">Thao tác</span></div>
+          <div role="rowgroup">{rows.map(f => <article className="om-row ofl-row" role="row" key={f.id}><div className="ofl-facility" role="cell" data-label="Cơ sở"><span className="ofl-mark" aria-hidden="true">⌂</span><div><strong>{f.name}</strong><small>Mã cơ sở #{f.id}</small></div></div><div className="ofl-location" role="cell" data-label="Địa điểm"><strong>{f.district}</strong><span>{f.address}</span></div><div className="ofl-operation" role="cell" data-label="Vận hành"><span><small>Giờ hoạt động</small><strong>{f.opening_time}–{f.closing_time}</strong></span><span><small>Số sân</small><strong>{Object.hasOwn(counts, f.id) ? (counts[f.id] ?? 'Không tải được') : 'Đang tải…'}</strong></span></div><div role="cell" data-label="Trạng thái"><StatusBadge status={f.status}/></div><div className="ofl-action" role="cell"><Link className="om-outline" aria-label={`Xem chi tiết ${f.name}`} to={`/owner/facilities/${f.id}`}>Xem chi tiết <span aria-hidden="true">→</span></Link></div></article>)}</div>
+        </div><OwnerPager meta={read.data.meta} onPage={next => setParams(next > 1 ? { page: String(next) } : {})}/></>}
   </OwnerLayout>;
 }
 

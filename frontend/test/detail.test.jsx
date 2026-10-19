@@ -18,7 +18,7 @@ function mock({detail=facility,availability,sessionError=false}={}) {
     return Promise.resolve(detail instanceof Response?detail:ok(detail));
   }));return calls;
 }
-function mount(){return render(<MemoryRouter initialEntries={['/facilities/1']}><AuthProvider><AppRoutes/></AuthProvider></MemoryRouter>);}
+function mount(path='/facilities/1'){return render(<MemoryRouter initialEntries={[path]}><AuthProvider><AppRoutes/></AuthProvider></MemoryRouter>);}
 const selected=()=>screen.queryAllByRole('button',{pressed:true}).filter(b=>b.classList.contains('fd-slot'));
 it('reads DTO, sorts default Court by numeric ID and selects local date from server time',async()=>{
   const calls=mock();mount();await screen.findByRole('button',{name:/09:00–09:30/});
@@ -34,6 +34,7 @@ it('all states map correctly and only AVAILABLE is enabled; null price is not ze
   await screen.findByRole('button',{name:/09:00–09:30/});
   for(const state of Object.keys(labels)){const button=screen.getByRole('button',{name:new RegExp('.*, '+labels[state]+',')});expect(button.disabled).toBe(state!=='AVAILABLE');}
   expect(screen.getByRole('button',{name:/Chưa có giá, Chưa có giá/})).toBeTruthy();
+  expect(screen.getByLabelText('Chú thích trạng thái khung giờ').textContent).toContain('Đang chọn');
 });
 it('selects one through six, rejects gaps and seventh, prepares range without mutation',async()=>{
   const calls=mock();mount();await screen.findByRole('button',{name:/09:00–09:30/});
@@ -42,8 +43,9 @@ it('selects one through six, rejects gaps and seventh, prepares range without mu
   for(let i=1;i<6;i++)fireEvent.click(buttons[i]);expect(selected()).toHaveLength(6);
   fireEvent.click(buttons[6]);expect(selected()).toHaveLength(6);
   fireEvent.click(buttons[2]);expect(selected()).toHaveLength(6);
-  expect(screen.getByText(/09:00–12:00 \(6 slot\)/)).toBeTruthy();
+  const summary=screen.getByRole('status');expect(summary.textContent).toContain('09:00–12:00');expect(summary.textContent).toContain('6 slot');
   const cta=screen.getByRole('button',{name:'Tiếp tục đặt sân ›'});expect(cta.disabled).toBe(false);
+  expect(cta.classList.contains('fd-booking-cta')).toBe(true);
   expect(calls.some(u=>u.pathname.includes('bookings'))).toBe(false);
   fireEvent.click(screen.getByText('Bỏ chọn'));expect(selected()).toHaveLength(0);
 });
@@ -57,6 +59,21 @@ it('no Courts skips Availability; displays real amenities/rules/policy',async()=
   const calls=mock({detail:{...facility,courts:[],amenities:[{id:'1',name:'Amenity fixture'}],price_rules:[{id:'1',start_time:'06:00',end_time:'22:00',hourly_rate:'80001'}],cancellation_policy:{cutoff_hours:24}}});mount();await screen.findByText('Chưa có sân đang hoạt động.');
   expect(calls.some(u=>u.pathname.includes('availability'))).toBe(false);expect(screen.getByText('Amenity fixture')).toBeTruthy();expect(screen.getByText('80.001 ₫/giờ')).toBeTruthy();expect(screen.getByText(/không gồm đúng mốc/)).toBeTruthy();
 });
+it.each([1,2,3,4])('gallery exposes the intentional %s-image composition',async count=>{
+  const gallery=Array.from({length:count},(_,i)=>`https://images.example.invalid/${count}-${i}.webp`);
+  mock({detail:{...facility,courts:[],gallery}});mount();await screen.findByRole('heading',{name:facility.name});
+  const region=screen.getByRole('region',{name:`Hình ảnh ${facility.name}`});
+  expect(region.classList.contains(`fd-gallery-count-${count}`)).toBe(true);
+  const images=screen.getAllByRole('img');expect(images).toHaveLength(count);
+  expect(images[0].getAttribute('loading')).toBe('eager');
+  for(const image of images.slice(1))expect(image.getAttribute('loading')).toBe('lazy');
+});
+it('gallery caps visible cells, reports remaining images and keeps broken-image fallback',async()=>{
+  const gallery=Array.from({length:7},(_,i)=>`https://images.example.invalid/many-${i}.webp`);
+  mock({detail:{...facility,courts:[],gallery}});mount();await screen.findByRole('heading',{name:facility.name});
+  expect(screen.getAllByRole('img')).toHaveLength(5);expect(screen.getByText('+2 ảnh')).toBeTruthy();
+  fireEvent.error(screen.getAllByRole('img')[0]);expect(screen.getByText('Không tải được ảnh')).toBeTruthy();
+});
 it.each([[404,'RESOURCE_NOT_FOUND'],[409,'PRICE_NOT_CONFIGURED'],[409,'FACILITY_NOT_CONFIGURED'],[422,'INVALID_DATE'],[503,'SERVICE_UNAVAILABLE']])('Availability %s %s is error, never empty',async(status,code)=>{
   mock({availability:()=>fail(status,code)});mount();await screen.findByRole('alert');expect(screen.queryByText('Không có khung giờ trong ngày này.')).toBeNull();expect(screen.getByRole('button',{name:'Tiếp tục đặt sân ›'}).disabled).toBe(true);
 });
@@ -67,10 +84,18 @@ it('network failure retries to distinct empty state',async()=>{
   let error=true;mock({availability:()=>error?Promise.reject(new TypeError('offline')):ok({court_id:'2',slots:[]})});mount();await screen.findByRole('alert');error=false;fireEvent.click(screen.getByRole('button',{name:'Thử lại'}));await screen.findByText('Không có khung giờ trong ngày này.');
 });
 it('late old Court response cannot replace new Court state',async()=>{
-  let finish;mock({availability:u=>u.pathname.includes('/2/')?new Promise(resolve=>{finish=resolve;}):ok({court_id:'10',slots:[]})});mount();await screen.findByText('Đang tải lịch trống…');fireEvent.click(screen.getByRole('button',{name:'Sân 10 ›'}));await screen.findByText('Không có khung giờ trong ngày này.');await act(async()=>finish(ok({court_id:'2',slots})));expect(screen.queryByRole('button',{name:/09:00–09:30/})).toBeNull();
+  let finish;mock({availability:u=>u.pathname.includes('/2/')?new Promise(resolve=>{finish=resolve;}):ok({court_id:'10',slots:[]})});mount();await screen.findByText('Đang tải lịch trống…');await waitFor(()=>expect(finish).toBeTypeOf('function'));fireEvent.click(screen.getByRole('button',{name:'Sân 10 ›'}));await screen.findByText('Không có khung giờ trong ngày này.');await act(async()=>finish(ok({court_id:'2',slots})));expect(screen.queryByRole('button',{name:/09:00–09:30/})).toBeNull();
 });
 it('decimal formatting and selection reject cross-day, blocked and gapped intervals',()=>{
   expect(money('999999999999.5')).toBe('999.999.999.999,5 ₫');expect(money(null)).toBe('Chưa có giá');expect(localDate('2026-10-04T17:00:00Z')).toBe('2026-10-05');
   expect(selectionFrom(slots,[0,1],'2','2026-10-05')).toEqual({court_id:'2',start_at:slots[0].start_at,end_at:slots[1].end_at});
   expect(selectionFrom(slots,[0,2],'2','2026-10-05')).toBeNull();expect(selectionFrom(slots,[0],'2','2026-10-06')).toBeNull();expect(selectionFrom([{...slots[0],state:'BLOCKED'}],[0],'2','2026-10-05')).toBeNull();
+});
+it('restores search context, selects a matching court and requested available interval',async()=>{
+  const calls=mock();mount('/facilities/1?district='+encodeURIComponent(facility.district)+'&date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10%2C2');
+  await screen.findByText(/Đang kiểm tra lại lịch cho 2026-10-05/);
+  await waitFor(()=>expect(calls.some(url=>url.pathname==='/api/v1/courts/10/availability')).toBe(true));
+  expect(screen.getAllByText('Phù hợp theo tìm kiếm')).toHaveLength(2);
+  expect(selected()).toHaveLength(2);
+  expect(screen.getByRole('link',{name:/Danh sách sân/}).getAttribute('href')).toContain('date=2026-10-05');
 });

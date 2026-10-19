@@ -5,7 +5,7 @@ import { useAuth } from './useAuth';
 import { AuthLayout, BackToLogin, Field, Notice } from './AuthUI';
 import { passwordHint, validateFields } from './validation';
 import { authResponse } from '../../services/responseValidators';
-import { safeReturnPath } from './returnPath';
+import { authorizedReturnPath } from './returnPath';
 
 function useForm(mode, action) {
   const [values, setValues] = useState({ email: '', password: '', full_name: '', confirm: '' });
@@ -47,33 +47,40 @@ function Submit({ pending, children }) {
 }
 export function LoginPage() {
   const auth = useAuth(), navigate = useNavigate(), location = useLocation();
-  const destination = safeReturnPath(location.state?.from);
+  const [requestedDestination] = useState(location.state?.from);
   const [registered] = useState(location.state?.registered === true);
+  const [passwordNotice] = useState(location.state?.passwordChanged ? 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.' : location.state?.passwordChangeUnknown ? 'Không thể xác minh kết quả đổi mật khẩu. Hãy thử đăng nhập lại bằng mật khẩu mới.' : '');
   useEffect(() => {
-    if (location.state?.registered) navigate('/login', { replace: true, state: null });
+    if (location.state?.registered || location.state?.passwordChanged || location.state?.passwordChangeUnknown) navigate('/login', { replace: true, state: null });
   }, [location.state, navigate]);
   const form = useForm('login', async (values, signal) => {
-    const { data } = await api('/auth/login', { method: 'POST', body: { email: values.email.trim().toLowerCase(), password: values.password }, signal, validate:authResponse });
+    await api('/auth/login', { method: 'POST', body: { email: values.email.trim().toLowerCase(), password: values.password }, signal, validate:authResponse });
     if (signal.aborted) return;
-    auth.acceptLogin(data);
+    const session = await auth.confirmLogin(signal);
+    if (signal.aborted) return;
+    if (session.status !== 'authenticated') throw session.error || new Error('SESSION_NOT_ESTABLISHED');
+    const destination = authorizedReturnPath(auth.hasLogoutIntent() ? undefined : requestedDestination, session.user);
+    auth.consumeLogoutIntent();
     navigate(destination, { replace: true, state: null });
   });
   return <AuthLayout title="Đăng nhập" subtitle="Chào mừng trở lại!">
     <Notice success>{registered ? 'Đăng ký thành công. Vui lòng đăng nhập.' : ''}</Notice>
+    <Notice success={Boolean(location.state?.passwordChanged)}>{passwordNotice}</Notice>
     <form onSubmit={form.submit} noValidate aria-busy={form.pending}>
       <Field {...form.field('email')} label="Email" autoComplete="username" placeholder="email@example.com" />
       <Field {...form.field('password')} label="Mật khẩu" password autoComplete="current-password" placeholder="Nhập mật khẩu" />
       <div className="forgot-link"><Link to="/forgot-password">Quên mật khẩu?</Link></div>
       <Notice>{form.error}</Notice><Submit pending={form.pending}>Đăng nhập</Submit>
     </form>
-    <p className="auth-footer">Chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link></p>
+    <p className="auth-footer">Chưa có tài khoản? <Link to="/register" state={requestedDestination?{from:requestedDestination}:null}>Đăng ký ngay</Link></p>
   </AuthLayout>;
 }
 export function RegisterPage() {
-  const navigate = useNavigate();
+  const navigate = useNavigate(), location=useLocation();
+  const [requestedDestination]=useState(location.state?.from);
   const form = useForm('register', async (values, signal) => {
     await api('/auth/register', { method: 'POST', body: { full_name: values.full_name.trim(), email: values.email.trim().toLowerCase(), password: values.password }, signal });
-    if (!signal.aborted) navigate('/login', { replace: true, state: { registered: true } });
+    if (!signal.aborted) navigate('/login', { replace: true, state: { registered: true, ...(requestedDestination?{from:requestedDestination}:{}) } });
   });
   return <AuthLayout title="Tạo tài khoản" subtitle="Đăng ký để đặt sân dễ dàng">
     <form onSubmit={form.submit} noValidate aria-busy={form.pending}>
@@ -83,7 +90,7 @@ export function RegisterPage() {
       <p className="password-hint">{passwordHint}</p>
       <Notice>{form.error}</Notice><Submit pending={form.pending}>Tạo tài khoản</Submit>
     </form>
-    <p className="auth-footer">Đã có tài khoản? <Link to="/login">Đăng nhập</Link></p>
+    <p className="auth-footer">Đã có tài khoản? <Link to="/login" state={requestedDestination?{from:requestedDestination}:null}>Đăng nhập</Link></p>
   </AuthLayout>;
 }
 export function ForgotPage() {

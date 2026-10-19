@@ -10,6 +10,7 @@ import { useServerCountdown } from '../bookings/useServerCountdown';
 import { useBookingRead } from '../bookings/useBookingRead';
 import { bookingDetailResponse, customerProofResponse } from '../../services/responseValidators';
 import { AccessibleModal } from '../../components/AccessibleModal';
+import { useSignedImage } from '../privateAssets/useSignedImage';
 import './payment.css';
 
 const MAX_BYTES = 5_000_000;
@@ -39,12 +40,18 @@ function CopyButton({ value, label, onFeedback }) {
 function ActivePayment({ booking, read }) {
   const auth=useAuth(), navigate=useNavigate();
   const [file,setFile]=useState(null),[preview,setPreview]=useState(''),[fileError,setFileError]=useState(''),[message,setMessage]=useState(''),[submitError,setSubmitError]=useState(''),[mode,setMode]=useState('idle'),[cancelOpen,setCancelOpen]=useState(false),[cancelBusy,setCancelBusy]=useState(false);
-  const checkedExpiry=useRef(null), input=useRef(null), previewRef=useRef('');
+  const checkedExpiry=useRef(null), input=useRef(null), previewRef=useRef(''), submitLock=useRef(false), submitGeneration=useRef(0), activeBookingId=useRef(String(booking.id));
   const refresh=read.refresh;
   const syncAtZero=useCallback(expiresAt=>{if(checkedExpiry.current===expiresAt)return;checkedExpiry.current=expiresAt;void refresh();},[refresh]);
   const remaining=useServerCountdown(booking.expires_at,read.value.meta.server_time,read.receivedAt,syncAtZero);
   const verified=Boolean(read.value)&&!read.error&&mode!=='unknown';
+  const invalidateSubmit=useCallback(()=>{submitGeneration.current++;submitLock.current=false;},[]);
   useEffect(()=>()=>{if(previewRef.current)URL.revokeObjectURL(previewRef.current);},[]);
+  useEffect(()=>{
+    activeBookingId.current=String(booking.id);invalidateSubmit();
+    return invalidateSubmit;
+  },[booking.id,invalidateSubmit]);
+  const isCurrent=(version,bookingId)=>version===submitGeneration.current&&bookingId===activeBookingId.current;
   function choose(event) {
     const next=event.target.files?.[0]||null, error=validateFile(next);
     if(previewRef.current)URL.revokeObjectURL(previewRef.current);
@@ -53,33 +60,39 @@ function ActivePayment({ booking, read }) {
     if(error)event.target.value='';
   }
   function remove(){if(previewRef.current)URL.revokeObjectURL(previewRef.current);previewRef.current='';setPreview('');setFile(null);setFileError('');setMessage('');if(input.current)input.current.value='';}
-  async function recover() {
+  async function recover(conflictError=null,version=submitGeneration.current,bookingId=String(booking.id)) {
     setMode('unknown');setSubmitError('Đang xác minh kết quả gửi minh chứng…');
     const result=await read.refresh();
+    if(!isCurrent(version,bookingId))return;
     const state=result?.value?.data?.status;
     if(state==='PENDING_CONFIRMATION'){navigate('/bookings/'+booking.id,{replace:true});return;}
     if(state==='PENDING_PAYMENT'){
-      setMode('idle');setSubmitError('Máy chủ chưa ghi nhận minh chứng. Bạn có thể chủ động gửi lại sau khi kiểm tra ảnh.');return;
+      setMode('idle');setSubmitError(conflictError?paymentError(conflictError):'Máy chủ chưa ghi nhận minh chứng. Bạn có thể chủ động gửi lại sau khi kiểm tra ảnh.');return;
     }
     if(state&&terminal.has(state)){setMode('terminal');setSubmitError('Booking đã chuyển sang trạng thái khác. Không thể gửi minh chứng.');return;}
     setMode('unknown');setSubmitError('Chưa xác minh được kết quả. Vui lòng kiểm tra lại trạng thái trước khi thao tác.');
   }
   async function submit(event) {
     event.preventDefault();
-    if(mode==='uploading'||!file||!verified||remaining===0)return;
+    if(submitLock.current||mode==='uploading'||!file||!verified||remaining===0)return;
+    submitLock.current=true;
+    const version=submitGeneration.current,bookingId=String(booking.id);
     setMode('uploading');setSubmitError('');
     const form=new FormData();form.append('image',file);
     try {
       const response=await auth.request('/payments/bookings/'+encodeURIComponent(booking.id)+'/proof',{method:'POST',body:form});
-      if(response.data?.booking?.status!=='PENDING_CONFIRMATION')return await recover();
+      if(!isCurrent(version,bookingId))return;
+      if(response.data?.booking?.status!=='PENDING_CONFIRMATION')return await recover(null,version,bookingId);
       const latest=await read.refresh();
+      if(!isCurrent(version,bookingId))return;
       if(latest?.value?.data?.status==='PENDING_CONFIRMATION')navigate('/bookings/'+booking.id,{replace:true});
-      else await recover();
+      else await recover(null,version,bookingId);
     } catch(error) {
-      if(error.status===0||error.status>=500){await recover();return;}
-      setMode(definitive.has(error.code)?'terminal':'idle');setSubmitError(paymentError(error));
-      if(definitive.has(error.code))await read.refresh();
-    }
+      if(!isCurrent(version,bookingId))return;
+      if(error.status===0||error.status>=500){await recover(null,version,bookingId);return;}
+      if(definitive.has(error.code)){await recover(error,version,bookingId);return;}
+      setMode('idle');setSubmitError(paymentError(error));
+    } finally {if(isCurrent(version,bookingId))submitLock.current=false;}
   }
   async function cancel(){
     if(cancelBusy)return;setCancelBusy(true);setSubmitError('');
@@ -96,7 +109,7 @@ function ActivePayment({ booking, read }) {
   return <>
     <div className="pay-heading"><div><p>Mã booking: {booking.id}</p><h1>Chi tiết đặt sân</h1></div><StatusBadge status={booking.status}/></div>
     {read.busy&&<p role="status">Đang đồng bộ trạng thái booking…</p>}
-    {read.error&&mode!=='unknown'&&<div className="bk-error" role="alert"><p>Chưa xác minh được trạng thái hiện tại. Việc gửi minh chứng đã bị khóa.</p><button onClick={recover}>Kiểm tra lại trạng thái</button></div>}
+    {read.error&&mode!=='unknown'&&<div className="bk-error" role="alert"><p>Chưa xác minh được trạng thái hiện tại. Việc gửi minh chứng đã bị khóa.</p><button onClick={()=>void recover()}>Kiểm tra lại trạng thái</button></div>}
     <div className="pay-overview"><div><BookingInfo booking={booking} slots={booking.slots}/><section className="bk-panel pay-deposit"><small>Thanh toán tiền cọc</small><strong>{money(booking.deposit_amount)}</strong><p>Vui lòng chuyển khoản tiền cọc 30% trước khi thời gian giữ sân kết thúc.</p></section></div><aside>
       <ServerCountdown key={read.receivedAt} expiresAt={booking.expires_at} serverTime={read.value.meta.server_time} receivedAt={read.receivedAt} sync={syncAtZero}/>
       <CostSummary amounts={booking}/><section className="bk-panel"><p className="bk-muted">Thời điểm tạo booking</p><strong>{stampLabel(booking.created_at)}</strong></section>
@@ -106,13 +119,13 @@ function ActivePayment({ booking, read }) {
       <div><dt>Số tài khoản</dt><dd><span>{booking.account_number_snapshot}</span><CopyButton value={booking.account_number_snapshot} label="số tài khoản" onFeedback={setMessage}/></dd></div>
       <div><dt>Số tiền cọc</dt><dd><span>{money(booking.deposit_amount)}</span><CopyButton value={money(booking.deposit_amount)} label="số tiền cọc" onFeedback={setMessage}/></dd></div>
       <div><dt>Nội dung</dt><dd><span>{'BOOKING '+booking.id}</span><CopyButton value={'BOOKING '+booking.id} label="nội dung chuyển khoản" onFeedback={setMessage}/></dd></div>
-    </dl>{message&&<p className="pay-feedback" role="status">{message}</p>}</div><div className="pay-qr"><h3>Mã QR thanh toán</h3>{booking.qr_image_url?<img src={booking.qr_image_url} alt="Mã QR thanh toán"/>:<><span aria-hidden="true">▦</span><strong>QR thanh toán chưa khả dụng</strong><p>Vui lòng chuyển khoản theo thông tin bên cạnh.</p></>}</div></section>
+    </dl>{message&&<p className="pay-feedback" role="status">{message}</p>}</div><div className="pay-qr"><h3>Mã QR thanh toán</h3>{booking.qr_image_url?<img src={booking.qr_image_url} alt="Mã QR thanh toán" loading="lazy" decoding="async"/>:<><span aria-hidden="true">▦</span><strong>QR thanh toán chưa khả dụng</strong><p>Vui lòng chuyển khoản theo thông tin bên cạnh.</p></>}</div></section>
     <form onSubmit={submit}><section className="bk-panel pay-upload"><h2>Minh chứng thanh toán</h2><p className="bk-muted">Chụp màn hình giao dịch thành công và tải lên để chủ sân kiểm tra.</p>
       <label className="pay-drop" aria-disabled={!verified||remaining===0}><span aria-hidden="true">⇧</span><strong>{file?'Chọn ảnh khác':'Chọn ảnh tải lên'}</strong><small>JPG hoặc PNG, tối đa 5 MB</small><input ref={input} type="file" accept="image/jpeg,image/png" onChange={choose} disabled={!verified||remaining===0||mode==='uploading'}/></label>
       {file&&<div className="pay-file">{preview&&<img src={preview} alt="Xem trước minh chứng thanh toán"/>}<span><strong>{file.name}</strong><small>{sizeLabel(file.size)}</small></span><div><button type="button" onClick={()=>input.current?.click()} disabled={mode==='uploading'}>Thay ảnh</button><button type="button" className="pay-delete" onClick={remove} disabled={mode==='uploading'}>Xóa</button></div></div>}
       {fileError&&<p className="pay-form-error" role="alert">{fileError}</p>}
     </section>
-    {submitError&&<div className="bk-error" role="alert"><p>{submitError}</p>{mode==='unknown'&&<button type="button" onClick={recover} disabled={read.busy}>Kiểm tra lại trạng thái</button>}</div>}
+    {submitError&&<div className="bk-error" role="alert"><p>{submitError}</p>{mode==='unknown'&&<button type="button" onClick={()=>void recover()} disabled={read.busy}>Kiểm tra lại trạng thái</button>}</div>}
     <div className="pay-actions"><button type="button" className="pay-cancel" onClick={()=>setCancelOpen(true)} disabled={!verified||remaining===0||mode==='uploading'}>Hủy đặt sân</button><button className="fl-primary pay-submit" disabled={!file||!verified||remaining===0||mode==='uploading'||mode==='terminal'}>{mode==='uploading'?'Đang gửi minh chứng…':'Gửi minh chứng'}</button></div></form>
     {cancelOpen&&<AccessibleModal title="Hủy đặt sân?" description="Yêu cầu đặt sân sẽ bị hủy, khung giờ sẽ được mở lại và thao tác này không thể hoàn tác." busy={cancelBusy} onClose={()=>setCancelOpen(false)} backdropClass="pay-modal-back" className="pay-modal"><div className="pay-modal-actions"><button autoFocus disabled={cancelBusy} onClick={()=>setCancelOpen(false)}>Không, giữ đặt sân</button><button className="pay-danger" disabled={cancelBusy} onClick={cancel}>{cancelBusy?'Đang hủy…':'Hủy đặt sân'}</button></div></AccessibleModal>}
   </>;
@@ -123,32 +136,12 @@ const proofStatusLabels={SUBMITTED:'Đã gửi, chờ kiểm tra',APPROVED:'Đã
 function ProofPanel({booking}){
   const validate=useCallback(envelope=>customerProofResponse(envelope)&&String(envelope.data.booking_id)===String(booking.id),[booking.id]);
   const read=useBookingRead('/payments/bookings/'+encodeURIComponent(booking.id)+'/proof',false,validate),proof=read.value?.data;
-  const [failedUrl,setFailedUrl]=useState(''),[expiredUrl,setExpiredUrl]=useState('');
-  const autoRetryUsed=useRef(false);
-  const proofUrl=proof?.proof_image_url,proofExpiresAt=proof?.proof_image_expires_at,proofServerTime=read.value?.meta?.server_time;
-  useEffect(()=>{
-    if(!proofUrl)return undefined;
-    const delay=Math.max(0,Date.parse(proofExpiresAt)-Date.parse(proofServerTime));
-    const timer=setTimeout(()=>setExpiredUrl(proofUrl),delay);
-    return()=>clearTimeout(timer);
-  },[proofUrl,proofExpiresAt,proofServerTime]);
-  async function refresh(manual=false){
-    if(manual)autoRetryUsed.current=false;
-    setFailedUrl('');setExpiredUrl('');
-    const result=await read.refresh();
-    if(result.error)setFailedUrl(proofUrl||'error');
-  }
-  async function imageError(){
-    if(autoRetryUsed.current){setFailedUrl(proofUrl);return;}
-    autoRetryUsed.current=true;
-    await refresh();
-  }
-  const unavailable=read.error||failedUrl===(proofUrl||'error')||expiredUrl===proofUrl;
+  const image=useSignedImage(read,proof);
+  const initialError=read.error&&!read.value;
+  const unavailable=initialError||image.failed||image.expired||image.refreshError;
+  const failureText=initialError?.code==='INVALID_RESPONSE'?'Dữ liệu minh chứng từ máy chủ không hợp lệ.':image.failed?'Ảnh minh chứng tạm thời không thể hiển thị.':image.expired?'Liên kết xem minh chứng đã hết hạn.':'Không thể tải dữ liệu minh chứng lúc này.';
   return <section className="bk-panel pay-proof"><div className="pay-proof-title"><span aria-hidden="true">✓</span><div><h2>Đã gửi minh chứng</h2><p>Minh chứng thanh toán của bạn đã được gửi đến chủ sân.</p><p>Chủ sân đang kiểm tra khoản cọc. Bạn sẽ nhận được kết quả sau khi chủ sân xác nhận.</p></div></div>
-    {read.loading?<p role="status">Đang tải minh chứng thanh toán…</p>:unavailable?<div className="pay-proof-error" role="alert"><p>Không thể tải ảnh minh chứng lúc này.</p><button type="button" onClick={()=>refresh(true)} disabled={read.busy}>{read.busy?'Đang tải lại…':'Tải lại'}</button></div>:proof?<>
-      <img className="pay-proof-image" src={proof.proof_image_url} alt="Minh chứng thanh toán đã gửi" onError={imageError}/>
-      <dl className="pay-proof-meta"><div><dt>Số tiền cọc</dt><dd>{money(booking.deposit_amount)}</dd></div><div><dt>Thời gian gửi</dt><dd>{stampLabel(proof.submitted_at)}</dd></div><div><dt>Trạng thái minh chứng</dt><dd>{proofStatusLabels[proof.status]}</dd></div><div><dt>Ngân hàng</dt><dd>{booking.bank_name_snapshot}</dd></div><div><dt>Nội dung chuyển khoản</dt><dd>{'BOOKING '+booking.id}</dd></div></dl>
-    </>:null}
+    {read.loading?<p role="status">Đang tải minh chứng thanh toán…</p>:unavailable?<div className="pay-proof-error" role="alert"><p>{failureText}</p><button type="button" onClick={image.manualRetry} disabled={read.busy}>{read.busy?'Đang tải lại…':'Tải lại'}</button></div>:proof?<><img className="pay-proof-image" src={proof.proof_image_url} alt="Minh chứng thanh toán đã gửi" loading="lazy" decoding="async" onError={image.onError} onLoad={image.onLoad}/><dl className="pay-proof-meta"><div><dt>Số tiền cọc</dt><dd>{money(booking.deposit_amount)}</dd></div><div><dt>Thời gian gửi</dt><dd>{stampLabel(proof.submitted_at)}</dd></div><div><dt>Trạng thái minh chứng</dt><dd>{proofStatusLabels[proof.status]}</dd></div><div><dt>Ngân hàng</dt><dd>{booking.bank_name_snapshot}</dd></div><div><dt>Nội dung chuyển khoản</dt><dd>{'BOOKING '+booking.id}</dd></div></dl></>:null}
   </section>;
 }
 
@@ -165,7 +158,40 @@ function SubmittedPayment({booking,read}){
   </BookingOverview>;
 }
 
+function V2TransferPayment({booking,read}) {
+  const [message,setMessage]=useState(''), checkedExpiry=useRef(null);
+  const refresh=read.refresh;
+  const syncAtZero=useCallback(expiresAt=>{
+    if(checkedExpiry.current===expiresAt)return;
+    checkedExpiry.current=expiresAt;
+    void refresh();
+  },[refresh]);
+  const pending=booking.status==='PENDING_CONFIRMATION';
+  const confirmed=booking.status==='CONFIRMED';
+  const expired=booking.status==='EXPIRED';
+  return <>
+    <div className="pay-heading"><div><p>Mã booking: {booking.id}</p><h1>Hướng dẫn chuyển tiền cọc</h1></div><StatusBadge status={booking.status}/></div>
+    {read.busy&&<p role="status">Đang đồng bộ trạng thái booking…</p>}
+    {read.error&&<div className="bk-error" role="alert"><p>Chưa thể xác minh trạng thái mới nhất. Thông tin bên dưới là lần đọc thành công gần nhất.</p><button onClick={read.refresh} disabled={read.busy}>Kiểm tra lại</button></div>}
+    <div className="pay-overview"><BookingInfo booking={booking} slots={booking.slots}/><aside>
+      {pending&&<ServerCountdown key={read.receivedAt} expiresAt={booking.confirmation_expires_at} serverTime={read.value.meta.server_time} receivedAt={read.receivedAt} sync={syncAtZero} title="Thời gian chờ chủ sân xác nhận còn lại" ariaLabel="Thời gian chờ chủ sân xác nhận"/>}
+      <CostSummary amounts={booking}/><section className="bk-panel"><p className="bk-muted">Thời điểm tạo booking</p><strong>{stampLabel(booking.created_at)}</strong></section>
+    </aside></div>
+    {pending&&<><section className="bk-panel pay-v2-status"><h2>Đang chờ chủ sân xác nhận</h2><p>Hãy chuyển đúng tiền cọc theo thông tin bên dưới. Chủ sân sẽ kiểm tra giao dịch và xác nhận booking.</p></section>
+      <section className="bk-panel pay-bank"><div><h2>Thông tin chuyển khoản tiền cọc</h2><dl>
+        <div><dt>Ngân hàng</dt><dd>{booking.bank_name_snapshot}</dd></div><div><dt>Chủ tài khoản</dt><dd>{booking.account_holder_snapshot}</dd></div>
+        <div><dt>Số tài khoản</dt><dd><span>{booking.account_number_snapshot}</span><CopyButton value={booking.account_number_snapshot} label="số tài khoản" onFeedback={setMessage}/></dd></div>
+        <div><dt>Số tiền cọc</dt><dd><span>{money(booking.deposit_amount)}</span><CopyButton value={booking.deposit_amount} label="số tiền cọc" onFeedback={setMessage}/></dd></div>
+        <div><dt>Nội dung</dt><dd><span>{booking.transfer_reference}</span><CopyButton value={booking.transfer_reference} label="nội dung chuyển khoản" onFeedback={setMessage}/></dd></div>
+      </dl>{message&&<p className="pay-feedback" role="status">{message}</p>}</div><div className="pay-qr"><h3>Mã QR thanh toán</h3>{booking.qr_image_url?<img src={booking.qr_image_url} alt="Mã QR tài khoản nhận cọc" loading="lazy" decoding="async"/>:<><span aria-hidden="true">◇</span><strong>QR thanh toán chưa khả dụng</strong><p>Vui lòng chuyển khoản theo thông tin bên cạnh.</p></>}</div></section>
+      <section className="bk-panel pay-v2-guide"><h2>Các bước chuyển tiền cọc</h2><ol><li>Chuyển đúng số tiền cọc hiển thị.</li><li>Giữ nguyên nội dung chuyển khoản <strong>{booking.transfer_reference}</strong>.</li><li>Chờ chủ sân kiểm tra giao dịch và xác nhận booking.</li><li>Không cần tải ảnh minh chứng lên website.</li></ol></section></>}
+    {confirmed&&<section className="bk-panel pay-state CONFIRMED"><h2>Đã được chủ sân xác nhận</h2><p>Chủ sân đã xác nhận booking và khoản cọc. Phần còn lại được thanh toán tại sân.</p><p><strong>Tiền cọc đã xác nhận:</strong> {money(booking.deposit_amount)}<br/><strong>Còn lại tại sân:</strong> {money(booking.remaining_amount)}</p><Link className="bk-button secondary" to={'/bookings/'+booking.id}>Về chi tiết booking</Link></section>}
+    {expired&&<section className="bk-panel pay-state EXPIRED"><h2>Thời gian chờ xác nhận đã hết.</h2><p>Booking đã hết hạn theo trạng thái xác nhận từ máy chủ. Khung giờ có thể được người khác đặt.</p><Link className="bk-button" to="/facilities">Chọn khung giờ khác</Link><Link className="bk-button secondary" to={'/bookings/'+booking.id}>Về chi tiết booking</Link></section>}
+  </>;
+}
+
 const terminalCopy={
+  PENDING_CONFIRMATION:{title:'Booking đang chờ chủ sân xác nhận',body:'Booking này không sử dụng luồng tải minh chứng thanh toán. Vui lòng theo dõi trạng thái tại trang chi tiết booking.'},
   CONFIRMED:{title:'Đặt sân đã được xác nhận',body:'Tiền cọc đã được chủ sân xác nhận. Vui lòng thanh toán phần còn lại tại sân.'},
   REJECTED:{title:'Đặt sân bị từ chối',body:'Chủ sân đã từ chối minh chứng thanh toán. Booking này đã kết thúc và không thể gửi lại minh chứng.'},
   EXPIRED:{title:'Yêu cầu đặt sân đã hết hạn',body:'Thời gian giữ sân đã kết thúc trước khi minh chứng thanh toán được gửi thành công.'},
@@ -182,7 +208,8 @@ export function PaymentPage(){
   const inaccessible=[401,403,404,422].includes(read.error?.status)&&!booking;
   return <BookingLayout><BookingBack to="/bookings">Lịch đặt sân của tôi</BookingBack>
     {read.loading?<p role="status">Đang tải thông tin thanh toán…</p>:inaccessible||!booking?<div className="bk-error" role="alert"><h1>Thanh toán tiền cọc</h1><p>{bookingError(read.error||{})}</p><button onClick={read.refresh}>Thử lại</button></div>
+      :booking.booking_flow_version===2&&['PENDING_CONFIRMATION','CONFIRMED','EXPIRED'].includes(booking.status)?<V2TransferPayment booking={booking} read={read}/>
       :booking.status==='PENDING_PAYMENT'?<ActivePayment booking={booking} read={read}/>
-      :booking.status==='PENDING_CONFIRMATION'?<SubmittedPayment booking={booking} read={read}/>
+      :booking.status==='PENDING_CONFIRMATION'&&booking.booking_flow_version===1?<SubmittedPayment booking={booking} read={read}/>
       :<PaymentState booking={booking}/>}</BookingLayout>;
 }

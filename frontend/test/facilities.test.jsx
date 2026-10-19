@@ -72,6 +72,7 @@ it('network error does not become empty',async()=>{
 it('late old response cannot overwrite new filter result',async()=>{
   let resolveOld;transport(u=>u.searchParams.get('q')==='new'?response([{...facility,name:'Kết quả mới'}]):new Promise(resolve=>{resolveOld=resolve;}));mount();
   expect(screen.getByText('Đang tải danh sách sân…')).toBeTruthy();
+  await waitFor(()=>expect(resolveOld).toBeTypeOf('function'));
   fireEvent.change(screen.getByLabelText('Tên sân'),{target:{value:'new'}});submit();await screen.findByText('Kết quả mới');
   await act(async()=>resolveOld(response()));expect(screen.queryByText(facility.name)).toBeNull();
 });
@@ -80,7 +81,7 @@ it('authenticated header reuses context and logout sends CSRF then becomes guest
   transport((u,options)=>{
     if(u.pathname.endsWith('/logout')){expect(options.method).toBe('POST');expect(options.headers['X-CSRF-Token']).toBe('test-csrf');return new Response(null,{status:204});}
     return response();
-  },session);mount();await screen.findByText('Người kiểm thử');fireEvent.click(screen.getByRole('button',{name:'Đăng xuất'}));await screen.findByRole('link',{name:'Đăng nhập'});
+  },session);mount();await screen.findByText('Người kiểm thử');fireEvent.click(screen.getByRole('button',{name:'Người kiểm thử'}));fireEvent.click(screen.getByRole('menuitem',{name:'Đăng xuất'}));await screen.findByRole('link',{name:'Đăng nhập'});
 });
 it('approved Owner keeps Customer navigation and gets Owner booking entry',async()=>{
   const session={user:{full_name:'Owner fixture',capabilities:['CUSTOMER','OWNER']},csrf_token:'test-csrf'};
@@ -95,3 +96,13 @@ it('cover failure falls back and supplied amenities are shown',async()=>{
 it('unsupported URL query shows API error instead of silently dropping filter',async()=>{
   const calls=transport(()=>new Response(JSON.stringify({error:{code:'FILTER_NOT_CONFIGURED'}}),{status:422}));mount('/facilities?date=2026-10-04');await screen.findByRole('alert');expect(calls[0].searchParams.get('date')).toBe('2026-10-04');
 });
+it('hydrates interval URL, preserves it through pagination, renders strict matching courts and detail context',async()=>{
+  const matching={...facility,matching_courts:[{id:'2',name:'Sân phù hợp'}]};
+  const calls=transport(u=>response([matching],{page:Number(u.searchParams.get('page')||1),page_size:20,total:21}));
+  mount('/facilities?date=2026-10-20&start_time=18%3A00&end_time=19%3A00');
+  await screen.findByText('Sân phù hợp');expect(screen.getByText('Phù hợp với thời gian đã chọn')).toBeTruthy();
+  const href=screen.getByRole('link',{name:'Xem chi tiết'}).getAttribute('href');expect(href).toContain('/facilities/1?');expect(href).toContain('matching_courts=2');
+  fireEvent.click(screen.getByRole('button',{name:'Trang sau'}));await waitFor(()=>expect(calls.at(-1).searchParams.get('page')).toBe('2'));
+  expect(calls.at(-1).searchParams.get('start_time')).toBe('18:00');expect(calls.at(-1).searchParams.get('end_time')).toBe('19:00');
+});
+it('fails closed when interval matching_courts is malformed',async()=>{transport(()=>response([{...facility,matching_courts:[{id:'2',name:'Sân',extra:true}]}]));mount('/facilities?date=2026-10-20&start_time=18%3A00&end_time=19%3A00');expect(await screen.findByRole('alert')).toBeTruthy();expect(screen.queryByText(facility.name)).toBeNull();});

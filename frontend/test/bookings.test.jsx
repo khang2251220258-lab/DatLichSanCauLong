@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import { AppRoutes } from '../src/routes/AppRoutes';
 import { AuthProvider } from '../src/features/auth/AuthContext';
 import { bookingLabels, estimate } from '../src/features/bookings/rules';
@@ -10,7 +10,7 @@ const now='2026-10-05T01:00:00.000Z';
 const user={id:'1',full_name:'Customer fixture',capabilities:['CUSTOMER','OWNER']};
 const slots=Array.from({length:3},(_,i)=>({start_at:new Date(Date.UTC(2026,9,5,2,i*30)).toISOString(),end_at:new Date(Date.UTC(2026,9,5,2,(i+1)*30)).toISOString(),state:'AVAILABLE',slot_amount:'40000.5'}));
 const facility={id:'1',name:'Facility fixture',address:'Địa chỉ fixture',district:'Phường Hải Châu',opening_time:'06:00',closing_time:'22:00',gallery:[],amenities:[],price_rules:[],cancellation_policy:null,courts:[{id:'2',name:'Court fixture'}]};
-const booking={id:'91',court_id:'2',status:'PENDING_PAYMENT',cancellation_cutoff_hours_snapshot:null,start_at:slots[0].start_at,end_at:slots[1].end_at,expires_at:'2026-10-05T01:05:00.000Z',created_at:now,total_amount:'80001',deposit_amount:'24000',remaining_amount:'56001',facility_name_snapshot:'Snapshot fixture',facility_address_snapshot:'Địa chỉ snapshot',court_name_snapshot:'Court snapshot',bank_name_snapshot:'Fixture Bank',account_number_snapshot:'00123456789',account_holder_snapshot:'NGUYEN VAN A',qr_image_url:null,qr_image_expires_at:null,refund:null,slots:slots.slice(0,2).map(s=>({...s,hourly_rate_snapshot:'80001'}))};
+const booking={id:'91',court_id:'2',status:'PENDING_PAYMENT',booking_flow_version:1,confirmation_expires_at:null,confirmed_by_user_id:null,cancellation_cutoff_hours_snapshot:null,start_at:slots[0].start_at,end_at:slots[1].end_at,expires_at:'2026-10-05T01:05:00.000Z',created_at:now,total_amount:'80001',deposit_amount:'24000',remaining_amount:'56001',facility_name_snapshot:'Snapshot fixture',facility_address_snapshot:'Địa chỉ snapshot',court_name_snapshot:'Court snapshot',bank_name_snapshot:'Fixture Bank',account_number_snapshot:'00123456789',account_holder_snapshot:'NGUYEN VAN A',qr_image_url:null,qr_image_expires_at:null,refund:null,slots:slots.slice(0,2).map(s=>({...s,hourly_rate_snapshot:'80001'}))};
 const ok=(data,meta={},status=200)=>new Response(JSON.stringify({data,meta:{server_time:now,...meta}}),{status});
 const fail=(status,code)=>new Response(JSON.stringify({error:{code}}),{status});
 function transport({create,detail,list,session,availability,cancel}={}) {
@@ -30,7 +30,9 @@ function transport({create,detail,list,session,availability,cancel}={}) {
   }));return calls;
 }
 function Location(){const loc=useLocation();return <output data-testid="location">{loc.pathname+loc.search}</output>;}
+function BookingSwitcher(){const navigate=useNavigate();return <button onClick={()=>navigate('/bookings/92')}>Mở booking 92</button>;}
 function mount(path='/facilities/1'){return render(<StrictMode><MemoryRouter initialEntries={[path]}><AuthProvider><Location/><AppRoutes/></AuthProvider></MemoryRouter></StrictMode>);}
+function mountWithSwitcher(path='/bookings/91'){return render(<StrictMode><MemoryRouter initialEntries={[path]}><AuthProvider><Location/><BookingSwitcher/><AppRoutes/></AuthProvider></MemoryRouter></StrictMode>);}
 async function confirm(){
   await screen.findByText('Customer fixture');
   fireEvent.click(await screen.findByRole('button',{name:/09:00–09:30/}));
@@ -48,13 +50,43 @@ it('confirmed booking renders cutoff deadline and cancels through accessible mod
   const calls=transport({detail:()=>ok({...confirmed,status:cancelled?'CANCELLED':'CONFIRMED'}),cancel:()=>{cancelled=true;return ok({booking:{id:'91',status:'CANCELLED',cancelled_by:'CUSTOMER',cancellation_reason:null,cancelled_at:now},refund:{id:'8',booking_id:'91',amount:'24000',status:'PENDING',requested_at:now}})}});
   mount('/bookings/91');expect(await screen.findByText('Tiền cọc đã được xác nhận')).toBeTruthy();expect(screen.getByText('2 giờ')).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Hủy đặt sân'}));expect(screen.getByRole('dialog',{name:'Xác nhận hủy đặt sân?'})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));
-  await screen.findByText('Booking đã được hủy.');expect(calls.filter(call=>call.options.method==='POST'&&call.u.pathname.endsWith('/cancel'))).toHaveLength(1);
+  await screen.findByRole('heading',{name:'Thông tin hủy đặt sân'});expect(screen.queryByText('Booking đã được hủy.')).toBeNull();expect(screen.queryByRole('heading',{name:'Cập nhật trạng thái'})).toBeNull();expect(calls.filter(call=>call.options.method==='POST'&&call.u.pathname.endsWith('/cancel'))).toHaveLength(1);
 });
 it.each([[0,true],[null,false],[2,false]])('confirmed cutoff %s eligibility follows server time',async(cutoff,enabled)=>{
   const start=enabled?'2026-10-05T02:00:00.000Z':'2026-10-05T01:00:00.000Z';transport({detail:()=>ok({...booking,status:'CONFIRMED',start_at:start,end_at:'2026-10-05T03:00:00.000Z',cancellation_cutoff_hours_snapshot:cutoff})});mount('/bookings/91');await screen.findByText('Tiền cọc đã được xác nhận');
   const button=screen.queryByRole('button',{name:'Hủy đặt sân'});expect(Boolean(button&&!button.disabled)).toBe(enabled);
 });
-it('malformed cancellation success fails closed and refetches authoritative state',async()=>{let reads=0;transport({detail:()=>{reads++;return ok({...booking,status:'CONFIRMED',start_at:'2026-10-06T02:00:00.000Z',cancellation_cutoff_hours_snapshot:2});},cancel:()=>ok({booking:{id:'91',status:'CANCELLED'},refund:null})});mount('/bookings/91');fireEvent.click(await screen.findByRole('button',{name:'Hủy đặt sân'}));fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));expect(await screen.findByRole('alert')).toBeTruthy();expect(reads).toBeGreaterThan(1);});
+it('malformed cancellation response fails closed but a valid authoritative recovery resolves uncertainty',async()=>{let reads=0;transport({detail:()=>{reads++;return ok({...booking,status:'CONFIRMED',start_at:'2026-10-06T02:00:00.000Z',cancellation_cutoff_hours_snapshot:2});},cancel:()=>ok({booking:{id:'91',status:'CANCELLED'},refund:null})});mount('/bookings/91');fireEvent.click(await screen.findByRole('button',{name:'Hủy đặt sân'}));const before=reads;fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));await waitFor(()=>expect(reads).toBeGreaterThan(before));expect(screen.queryByText(/Kết quả yêu cầu chưa rõ|Chưa xác minh được trạng thái/)).toBeNull();expect(screen.getByRole('button',{name:'Hủy đặt sân'}).disabled).toBe(false);});
+
+it('unknown cancellation result is cleared only after a validated authoritative recovery',async()=>{
+  let reads=0;const confirmed={...booking,status:'CONFIRMED',start_at:'2026-10-06T02:00:00.000Z',cancellation_cutoff_hours_snapshot:2};
+  transport({detail:()=>{reads++;return ok(confirmed);},cancel:()=>Promise.reject(new TypeError('lost response'))});mount('/bookings/91');
+  fireEvent.click(await screen.findByRole('button',{name:'Hủy đặt sân'}));const before=reads;fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));
+  await waitFor(()=>expect(reads).toBeGreaterThan(before));expect(screen.queryByText(/Kết quả yêu cầu chưa rõ|Chưa xác minh được trạng thái/)).toBeNull();expect(screen.getByRole('button',{name:'Hủy đặt sân'}).disabled).toBe(false);
+});
+
+it('failed unknown-result recovery preserves snapshot, warning and mutation protection until retry succeeds',async()=>{
+  let reads=0,failRecovery=true;const confirmed={...booking,status:'CONFIRMED',start_at:'2026-10-06T02:00:00.000Z',cancellation_cutoff_hours_snapshot:2};
+  transport({detail:()=>{reads++;return reads<=1||!failRecovery?ok(confirmed):fail(503,'UNAVAILABLE');},cancel:()=>Promise.reject(new TypeError('lost response'))});mount('/bookings/91');
+  fireEvent.click(await screen.findByRole('button',{name:'Hủy đặt sân'}));fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));
+  expect(await screen.findByText(/Kết quả yêu cầu chưa rõ và chưa thể xác minh/)).toBeTruthy();expect(screen.getByText('Snapshot fixture')).toBeTruthy();expect(screen.getByRole('button',{name:'Hủy đặt sân'}).disabled).toBe(true);
+  failRecovery=false;fireEvent.click(screen.getByRole('button',{name:'Đồng bộ lại'}));await waitFor(()=>expect(screen.queryByText(/Kết quả yêu cầu chưa rõ|Chưa xác minh được trạng thái/)).toBeNull());expect(screen.getByRole('button',{name:'Hủy đặt sân'}).disabled).toBe(false);
+});
+
+it('409 recovery clears stale state after a valid refetch and does not retry the mutation',async()=>{
+  let reads=0,posts=0;const confirmed={...booking,status:'CONFIRMED',start_at:'2026-10-06T02:00:00.000Z',cancellation_cutoff_hours_snapshot:2};
+  transport({detail:()=>{reads++;return ok(confirmed);},cancel:()=>{posts++;return fail(409,'INVALID_BOOKING_STATE');}});mount('/bookings/91');
+  fireEvent.click(await screen.findByRole('button',{name:'Hủy đặt sân'}));const before=reads;fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));await waitFor(()=>expect(reads).toBeGreaterThan(before));expect(posts).toBe(1);expect(screen.queryByText(/Chưa xác minh|Trạng thái có thể đã thay đổi/)).toBeNull();
+});
+
+it.each([
+  ['malformed', bookingValue=>ok({...bookingValue,slots:null})],
+  ['wrong booking id', bookingValue=>ok({...bookingValue,id:'92'})],
+])('%s recovery response cannot clear unknown-result protection',async(_label,recovery)=>{
+  let reads=0;const confirmed={...booking,status:'CONFIRMED',start_at:'2026-10-06T02:00:00.000Z',cancellation_cutoff_hours_snapshot:2};
+  transport({detail:()=>{reads++;return reads<=1?ok(confirmed):recovery(confirmed);},cancel:()=>Promise.reject(new TypeError('lost response'))});mount('/bookings/91');
+  fireEvent.click(await screen.findByRole('button',{name:'Hủy đặt sân'}));fireEvent.click(screen.getByRole('button',{name:'Xác nhận hủy'}));expect(await screen.findByText(/Kết quả yêu cầu chưa rõ và chưa thể xác minh/)).toBeTruthy();expect(screen.getByRole('button',{name:'Hủy đặt sân'}).disabled).toBe(true);expect(screen.getByText('Snapshot fixture')).toBeTruthy();
+});
 
 it('selection → confirmation shows exact estimates; POST is explicit, whitelist + CSRF, then real snapshot detail',async()=>{
   const calls=transport();mount();await confirm();expect(creates(calls)).toHaveLength(0);
@@ -66,6 +98,14 @@ it('selection → confirmation shows exact estimates; POST is explicit, whitelis
   const post=creates(calls)[0].options;expect(post.headers['X-CSRF-Token']).toBe('csrf-test');
   expect(JSON.parse(post.body)).toEqual({court_id:'2',start_at:slots[0].start_at,end_at:slots[1].end_at});
   expect(screen.getByTestId('location').textContent).toBe('/bookings/91');
+});
+it('successful V2 create routes directly to its read-only transfer instructions',async()=>{
+  const v2={...booking,status:'PENDING_CONFIRMATION',booking_flow_version:2,confirmation_expires_at:'2026-10-05T01:30:00.000Z',transfer_reference:'CLDN 91'};
+  const calls=transport({create:()=>ok(v2,{},201),detail:()=>ok(v2)});mount();await confirm();
+  fireEvent.click(screen.getByRole('button',{name:'Xác nhận đặt sân'}));
+  await screen.findByRole('heading',{name:'Hướng dẫn chuyển tiền cọc'});
+  expect(screen.getByTestId('location').textContent).toBe('/bookings/91/payment');
+  expect(creates(calls)).toHaveLength(1);expect(screen.queryByRole('button',{name:'Gửi minh chứng'})).toBeNull();
 });
 it('back preserves valid memory selection, while remount/direct confirmation has no selection and never POSTs',async()=>{
   const calls=transport();const view=mount();await confirm();fireEvent.click(screen.getByRole('link',{name:'Quay lại'}));
@@ -108,12 +148,24 @@ it('navigation back while POST is in flight cannot issue a second create',async(
   fireEvent.click(screen.getByRole('link',{name:'Quay lại'}));await screen.findByRole('button',{name:/09:00–09:30/});fireEvent.click(screen.getByRole('button',{name:'Tiếp tục đặt sân ›'}));
   expect(screen.getByText(/Yêu cầu trước chưa xác định/)).toBeTruthy();expect(creates(calls)).toHaveLength(1);await act(async()=>finish(ok(booking,{},201)));await screen.findByText('Snapshot fixture');
 });
-it('guest is told to reselect, login stays on existing home redirect without auto-create',async()=>{
-  const calls=transport({session:()=>fail(401,'SESSION_EXPIRED')});mount();fireEvent.click(await screen.findByRole('button',{name:/09:00–09:30/}));
-  expect(screen.getByText(/Vui lòng đăng nhập rồi quay lại cơ sở/)).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Tiếp tục đặt sân ›'}));
+it('guest booking intent survives login in memory and returns to confirmation without auto-create',async()=>{
+  let authenticated=false;
+  const calls=transport({session:()=>authenticated?ok({user,csrf_token:'csrf-test'}):fail(401,'SESSION_EXPIRED')});
+  const loginCall=globalThis.fetch;
+  loginCall.mockImplementation(async(url,options)=>{
+    const u=new URL(url);calls.push({u,options});expect(options.credentials).toBe('include');
+    if(u.pathname.endsWith('/auth/session'))return authenticated?ok({user,csrf_token:'csrf-test'}):fail(401,'SESSION_EXPIRED');
+    if(u.pathname.endsWith('/auth/login')){authenticated=true;return ok({user,csrf_token:'csrf-test'});}
+    if(u.pathname.endsWith('/facilities/1'))return ok(facility);
+    if(u.pathname.endsWith('/availability'))return ok({court_id:'2',date:'2026-10-05',slots});
+    if(u.pathname.endsWith('/facilities'))return ok([],{page:1,page_size:4,total:0});
+    throw new Error('Unexpected test request '+u.pathname);
+  });
+  mount();fireEvent.click(await screen.findByRole('button',{name:/09:00–09:30/}));
+  expect(screen.getByText(/Đăng nhập để tiếp tục với sân và khung giờ đang chọn/)).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Tiếp tục đặt sân ›'}));
   await screen.findByRole('heading',{name:'Đăng nhập'});
   fireEvent.change(screen.getByLabelText('Email'),{target:{value:'test@example.com'}});fireEvent.change(screen.getByLabelText('Mật khẩu',{exact:true}),{target:{value:'TestPassword1'}});
-  fireEvent.click(screen.getByRole('button',{name:'Đăng nhập'}));await waitFor(()=>expect(screen.getByTestId('location').textContent).toBe('/'));expect(creates(calls)).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button',{name:'Đăng nhập'}));await waitFor(()=>expect(screen.getByTestId('location').textContent).toBe('/facilities/1/booking-confirm'));expect(screen.getByRole('heading',{name:'Xác nhận đặt sân'})).toBeTruthy();expect(creates(calls)).toHaveLength(0);
 });
 it('Admin cannot access personal booking routes or call their API',async()=>{
   const calls=transport({session:()=>ok({user:{...user,capabilities:['ADMIN']},csrf_token:'test'})});mount('/bookings');await screen.findByText('Không có quyền truy cập');expect(calls.some(c=>c.u.pathname==='/api/v1/bookings')).toBe(false);
@@ -151,22 +203,47 @@ it('countdown zero refetches and uses server EXPIRED, with no mutation',async()=
 });
 it('sync error does not invent EXPIRED; explicit recovery works',async()=>{
   let error=false;transport({detail:()=>error?fail(503,'UNAVAILABLE'):ok(booking)});mount('/bookings/91');await screen.findByRole('timer');error=true;fireEvent(window,new Event('focus'));
-  await screen.findByText(/Chưa xác minh được trạng thái hiện tại/);expect(screen.queryByText('Hết hạn')).toBeNull();expect(screen.queryByRole('timer')).toBeNull();error=false;fireEvent.click(screen.getByRole('button',{name:'Đồng bộ lại'}));await screen.findByRole('timer');
+  await screen.findByText(/Chưa xác minh được trạng thái hiện tại/);expect(screen.queryByText('Hết hạn')).toBeNull();expect(screen.queryByRole('timer')).toBeNull();error=false;fireEvent.click(screen.getByRole('button',{name:'Đồng bộ lại'}));await screen.findByRole('timer');expect(screen.queryByText(/Chưa xác minh được trạng thái hiện tại/)).toBeNull();
+});
+it('initial detail failure is blocking when no validated snapshot exists',async()=>{
+  transport({detail:()=>fail(503,'UNAVAILABLE')});mount('/bookings/91');expect(await screen.findByRole('alert')).toBeTruthy();expect(screen.queryByText('Snapshot fixture')).toBeNull();expect(screen.getByRole('button',{name:'Thử lại'})).toBeTruthy();
+});
+it('aborted stale booking response cannot overwrite or warn on the next booking resource',async()=>{
+  let resolveA;const bookingB={...booking,id:'92',status:'CONFIRMED',facility_name_snapshot:'Booking B facility'};
+  transport({detail:u=>u.pathname.endsWith('/91')?new Promise(resolve=>{resolveA=resolve;}):ok(bookingB)});mountWithSwitcher();
+  await waitFor(()=>expect(resolveA).toBeTypeOf('function'));fireEvent.click(screen.getByRole('button',{name:'Mở booking 92'}));expect(await screen.findByText('Booking B facility')).toBeTruthy();
+  await act(async()=>resolveA(ok({...booking,status:'EXPIRED'})));expect(screen.getByText('Booking B facility')).toBeTruthy();expect(screen.queryByText('Snapshot fixture')).toBeNull();expect(screen.queryByText(/Chưa xác minh được trạng thái hiện tại/)).toBeNull();expect(screen.getByTestId('location').textContent).toBe('/bookings/92');
 });
 it('zero and failed sync do not create a refetch loop or local expiry',async()=>{
-  let count=0;const calls=transport({detail:()=>{count++;return count<=2?ok({...booking,expires_at:now}):fail(503,'UNAVAILABLE');}});mount('/bookings/91');
+  let count=0;const calls=transport({detail:()=>{count++;return count<=1?ok({...booking,expires_at:now}):fail(503,'UNAVAILABLE');}});mount('/bookings/91');
   await screen.findByText(/Chưa xác minh được trạng thái hiện tại/);const previous=calls.length;await act(async()=>new Promise(resolve=>setTimeout(resolve,350)));expect(calls).toHaveLength(previous);expect(screen.queryByText('Hết hạn')).toBeNull();
 });
 it.each([
   ['PENDING_CONFIRMATION','Minh chứng đã được gửi. Vui lòng chờ chủ sân xác nhận.'],
   ['CONFIRMED','Đặt sân đã được chủ sân xác nhận. Số tiền còn lại 70% thanh toán tại sân.'],
   ['REJECTED','Minh chứng thanh toán đã bị từ chối. Booking này không thể gửi lại minh chứng.'],
-  ['CANCELLED','Booking đã được hủy.'],['EXPIRED','Booking đã hết thời gian thanh toán.'],['COMPLETED','Booking đã hoàn thành.'],
+  ['EXPIRED','Booking đã hết thời gian thanh toán.'],['COMPLETED','Booking đã hoàn thành.'],
 ])('%s has friendly state and no countdown/payment action',async(status,text)=>{
   transport({detail:()=>ok({...booking,status})});mount('/bookings/91');await screen.findByText(bookingLabels[status]);expect(screen.queryByRole('timer')).toBeNull();expect(screen.getByText(text)).toBeTruthy();expect(screen.queryByText(/Bước thanh toán sẽ được hỗ trợ/)).toBeNull();expect(screen.queryByRole('button',{name:/chuyển khoản|proof|Hủy/i})).toBeNull();
+});
+it('cancelled detail presents verified cancellation metadata with a neutral missing-reason fallback',async()=>{
+  transport({detail:()=>ok({...booking,status:'CANCELLED',cancelled_at:now,cancelled_by:'OWNER',cancellation_reason:null})});mount('/bookings/91');
+  expect(await screen.findByRole('heading',{name:'Thông tin hủy đặt sân'})).toBeTruthy();
+  expect(screen.getByText('Chủ sân')).toBeTruthy();
+  expect(screen.getByText('Không có lý do được ghi nhận.')).toBeTruthy();
+  expect(screen.getAllByText('05/10/2026 08:00')).toHaveLength(2);
+  expect(screen.queryByText('Booking đã được hủy.')).toBeNull();
+  expect(screen.queryByRole('heading',{name:'Cập nhật trạng thái'})).toBeNull();
 });
 it('estimate preserves decimal and applies half-up only to total and deposit',()=>{
   expect(estimate([{slot_amount:'0.5'},{slot_amount:'0.5'}])).toEqual({total_amount:'1',deposit_amount:'0',remaining_amount:'1'});
   expect(estimate([{slot_amount:'5'}])).toEqual({total_amount:'5',deposit_amount:'2',remaining_amount:'3'});
   expect(estimate([{slot_amount:'999999999999.5'}]).total_amount).toBe('1000000000000');expect(estimate([{slot_amount:null}])).toBeNull();
+});
+
+it('V2 pending confirmation renders its authoritative countdown without a payment action',async()=>{
+  transport({detail:()=>ok({...booking,status:'PENDING_CONFIRMATION',booking_flow_version:2,confirmation_expires_at:'2026-10-05T01:30:00.000Z',transfer_reference:'CLDN 91'})});
+  mount('/bookings/91');expect((await screen.findByRole('timer')).textContent).toBe('30:00');
+  expect(screen.getByText('Yêu cầu đặt sân đang chờ chủ sân xác nhận.')).toBeTruthy();
+  expect(screen.queryByRole('link',{name:'Thanh toán tiền cọc'})).toBeNull();
 });
