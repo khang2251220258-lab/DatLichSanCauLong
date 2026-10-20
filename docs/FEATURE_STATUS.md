@@ -1,10 +1,10 @@
 # Feature Status
 
-## Final Project Stabilization Phase 4B — isolated backup/restore rehearsal PARTIAL (2026-10-20)
+## Final Project Stabilization Phase 4B — isolated backup/restore rehearsal VERIFIED (2026-10-20)
 
 The public application schema was restored into a guarded, empty, loopback-only PostgreSQL 17.11 target with native PostgreSQL 17.11 clients. The custom archive validated with `pg_restore --list` (exit 0), `pg_restore` completed with exit 0 and no warnings, and migration history, 26 tables, constraints/indexes, agreed counts, and Booking #1119 matched the fresh source snapshot. A second source read-only fingerprint confirmed no Supabase source mutation, migration, seed, demo-data change, or Booking #1119 change. Prisma validate/generate passed.
 
-This is not yet a complete restore rehearsal: the local PostgreSQL target has TLS disabled, while the runtime adapter requires a trusted CA and certificate verification. Backend connectivity, readiness, Public Facility, Guest Search, and Recurring Search smokes were not forced with weaker TLS or a permanent environment change. The retained local target may be used only to complete that local-TLS smoke step. Provider/domain/proxy topology, staging validation, monitoring ownership, and production deployment remain blocked.
+The local target was then configured independently with verified local TLS. A `verify-full` connection used TLSv1.3 / `TLS_AES_256_GCM_SHA384`, CA verification, and hostname verification for `localhost`. Process-scoped backend credentials and CA configuration connected Prisma to the restored target; temporary-backend health, readiness, Public Facility, Guest Search, and Recurring Search GET smokes each returned HTTP 200 with valid response contracts. Post-smoke source and target counts, plus Booking #1119, remained unchanged. No TLS bypass, permanent `.env` change, migration, seed, reset, db push, or business mutation occurred. The restored target and external backup artifact are retained; provider/domain/proxy topology, staging validation, monitoring ownership, and production deployment remain blocked.
 
 ## Final Project Stabilization Phase 3 — authenticated release rehearsal VERIFIED (2026-10-19)
 
