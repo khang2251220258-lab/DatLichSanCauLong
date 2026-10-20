@@ -1,5 +1,11 @@
 # Feature Status
 
+## Final Project Stabilization Phase 5A — CI workflow IMPLEMENTED, local rehearsal VERIFIED (2026-10-20)
+
+The repository now has zero-secret GitHub Actions validation at `.github/workflows/ci.yml`, triggered by pull requests and pushes to `main`. It pins Node `24.14.1`, uses clean lockfile installs and dependency caching, cancels superseded runs, and grants only `contents: read`. Repository safety rejects tracked runtime environment files, private keys, dumps, pgpass files, and Playwright auth state. Backend validation runs production dependency audit, Prisma validate/generate using a disposable non-connected URL, and the non-database unit suite; frontend validation runs full and production audits, lint, canonical tests, and production build.
+
+PostgreSQL integration is intentionally deferred from ordinary CI because this application requires verified TLS and a normal Actions PostgreSQL service would not reproduce that model without a TLS bypass. Public Playwright requires a live backend/API; authenticated and three-role rehearsal Playwright additionally create isolated fixtures and require protected credentials. These remain integration/staging-release gates until a separate reviewed disposable TLS-enabled application stack is added. The workflow neither deploys nor connects to Supabase, runs migrations, seeds, or mutates demo data. Local command rehearsal passed; no GitHub-hosted execution is claimed until this commit is pushed.
+
 ## Final Project Stabilization Phase 4B — isolated backup/restore rehearsal VERIFIED (2026-10-20)
 
 The public application schema was restored into a guarded, empty, loopback-only PostgreSQL 17.11 target with native PostgreSQL 17.11 clients. The custom archive validated with `pg_restore --list` (exit 0), `pg_restore` completed with exit 0 and no warnings, and migration history, 26 tables, constraints/indexes, agreed counts, and Booking #1119 matched the fresh source snapshot. A second source read-only fingerprint confirmed no Supabase source mutation, migration, seed, demo-data change, or Booking #1119 change. Prisma validate/generate passed.

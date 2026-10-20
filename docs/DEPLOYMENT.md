@@ -62,6 +62,12 @@ npm run build
 
 Serve `frontend/dist` as a static SPA with fallback to `index.html`. Do not use `vite preview` as the production server.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main`, using Node `24.14.1`, `npm ci`, and least-privilege read-only repository permissions. It has three zero-secret jobs: repository safety checks reject tracked runtime environment files, private keys, dumps, pgpass files, and Playwright auth state; backend validation runs production audit, Prisma validate/generate, and non-database unit tests; frontend validation runs full and production dependency audits, lint, tests, and build.
+
+The workflow deliberately has no PostgreSQL service, no migration, no seed, no Supabase URL, and no deployment step. Prisma receives only a disposable loopback URL for configuration parsing; validate/generate do not connect to it. Existing PostgreSQL integration suites require the project’s verified TLS connection architecture, so a plain Actions service would either be inaccurate or require a TLS bypass. They remain an isolated integration/release gate until a separately reviewed TLS-enabled disposable runner design is implemented. Public Playwright still needs a real application/API runtime; authenticated and three-role rehearsal suites additionally use isolated fixtures and credentials, so no Playwright suite is a required ordinary CI job.
+
 ## Database migration procedure
 
 1. Confirm the target database, approved release commit, backup status, and migration files.

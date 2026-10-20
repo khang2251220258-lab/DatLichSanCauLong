@@ -2,6 +2,12 @@
 
 > Baseline 2026-10-10: Customer hủy Booking `CONFIRMED` tạo Refund `PENDING` nguyên tử; Owner proof và Customer confirmation đã triển khai đầy đủ theo `PENDING → PROOF_SUBMITTED → REFUNDED` trong Booking Detail.
 
+## Continuous integration
+
+GitHub Actions runs `.github/workflows/ci.yml` for pull requests and pushes to `main`. It uses Node `24.14.1`, clean lockfile installs, repository credential/artifact checks, backend production dependency audit plus Prisma validate/generate and non-database tests, and frontend full/production audits, lint, tests, and production build. The workflow uses zero secrets and no database service; its Prisma URL is a disposable non-connected CI value used only for static CLI validation.
+
+PostgreSQL integration suites and Playwright remain outside ordinary push/PR CI. They require either verified-TLS isolated PostgreSQL fixtures or an application/API runtime, and authenticated/release suites additionally create isolated fixtures. They remain staging/release-gate work until a separately reviewed disposable TLS-enabled integration design exists. CI performs validation only: it does not deploy, migrate, seed, or contact Supabase.
+
 ## Trạng thái hiện tại — 2026-10-07
 
 Baseline v1 hiện có frontend và backend cho Auth email/password, Home, Public Facility list/detail, Availability, Customer Booking, Payment Proof, Owner Booking review, confirmed cancellation + Refund, Owner Facility/Court/PriceRule/Bank Account + QR/Cancellation Policy/Images + Amenities, Owner Request và Admin Facility/Amenity/Owner Request. Favorite/Review, Notification, Content, Admin User Management và Statistics/Dashboard chưa hoàn chỉnh. Bảng chuẩn tại [Feature Status](docs/FEATURE_STATUS.md); các đoạn phase cũ bên dưới là lịch sử triển khai.

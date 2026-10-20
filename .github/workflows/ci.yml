@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Prisma validate/generate only parse this disposable URL; no database service
+  # or connection is started by this workflow.
+  DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/booking_ci
+  DATABASE_CA_PATH: certs/supabase-ca.crt
+
+jobs:
+  repository-safety:
+    name: Repository safety
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Reject tracked runtime credentials and generated auth state
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r file; do
+            base="${file##*/}"
+            case "$file" in
+              .env|*/.env|.env.*|*/.env.*)
+                if [[ "$base" != ".env.example" ]]; then
+                  echo "Forbidden tracked environment file: $file"
+                  failed=1
+                fi
+                ;;
+              *.key|*.pem|*.dump|*/pgpass.conf|pgpass.conf|playwright/.auth/*)
+                echo "Forbidden tracked credential or generated artifact: $file"
+                failed=1
+                ;;
+            esac
+          done < <(git ls-files)
+          test "$failed" -eq 0
+
+  backend-validation:
+    name: Backend validation
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm run prisma:validate
+      - run: npm run prisma:generate
+      - run: npm test
+
+  frontend-validation:
+    name: Frontend validation
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit
+      - run: npm audit --omit=dev
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
