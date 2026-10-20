@@ -68,6 +68,8 @@ Serve `frontend/dist` as a static SPA with fallback to `index.html`. Do not use 
 
 The workflow deliberately has no PostgreSQL service, no migration, no seed, no Supabase URL, and no deployment step. Prisma receives only a disposable loopback URL for configuration parsing; validate/generate do not connect to it. Existing PostgreSQL integration suites require the project’s verified TLS connection architecture, so a plain Actions service would either be inaccurate or require a TLS bypass. They remain an isolated integration/release gate until a separately reviewed TLS-enabled disposable runner design is implemented. Public Playwright still needs a real application/API runtime; authenticated and three-role rehearsal suites additionally use isolated fixtures and credentials, so no Playwright suite is a required ordinary CI job.
 
+The initial hosted run is [CI #1](https://github.com/khang2251220258-lab/DatLichSanCauLong/actions/runs/39390349745): push event for `a1c4f5b`, successful on 2026-10-20. Repository safety, backend validation, and frontend validation all completed successfully. This verifies the ordinary workflow only; it is not a staging or production deployment.
+
 ## Database migration procedure
 
 1. Confirm the target database, approved release commit, backup status, and migration files.
