@@ -1,8 +1,10 @@
 # Production Deployment Runbook
 
+> **Topology decision:** [DEPLOYMENT_TOPOLOGY.md](DEPLOYMENT_TOPOLOGY.md) records the approved Phase 5B design: Cloudflare Pages, one Fly.io backend Machine in Sydney, same-site custom app/API subdomains, and an isolated Supabase staging project. This is documentation only; no resource, DNS record, secret, migration or deployment exists yet.
+
 ## Release assumptions
 
-The production topology for this MVP is one React/Vite static deployment, one Node/Express backend instance, and the existing Supabase PostgreSQL database. The hosting providers and public domain are not selected yet. Do not set Express `trust proxy` until the actual proxy hop topology is known.
+The production topology for this MVP is one React/Vite static deployment, one Node/Express backend instance, and Supabase PostgreSQL. The selected provider/domain design is in [DEPLOYMENT_TOPOLOGY.md](DEPLOYMENT_TOPOLOGY.md). Do not set Express `trust proxy` until staging observes the exact proxy hop topology and a narrow rule is tested.
 
 Production single-booking creation uses Booking V2. Existing V1 records remain readable and keep their historical behavior. Recurring children continue to use Booking V2.
 
@@ -27,7 +29,7 @@ Never commit real values. Store backend variables in the server platform and `VI
 
 `PORT` is optional and defaults to `3000`; use the port supplied by the hosting platform. `DIRECT_URL` is optional and is used only by Prisma CLI when the runtime URL is unsuitable for migration commands.
 
-The application has no `SESSION_SECRET`: session tokens are random opaque values and only their hashes are persisted. Cookie settings are code-managed: HttpOnly, SameSite=Lax, Path=/, and Secure in production. Frontend and backend must therefore use compatible HTTPS sites; the frontend sends `credentials: include`.
+The application has no `SESSION_SECRET`: session tokens are random opaque values and only their hashes are persisted. Cookie settings are code-managed: HttpOnly, SameSite=Lax, Path=/, and Secure in production. Frontend and backend must therefore use compatible HTTPS sites; the frontend sends `credentials: include`. Unrelated provider preview hostnames are public-preview-only: authenticated staging/production needs same-site custom subdomains such as `app.<domain>` and `api.<domain>`.
 
 ### Frontend build requirement
 
@@ -171,4 +173,4 @@ Capture structured platform request/error logs without credentials, session/rese
 9. No unexpected browser console/network error or horizontal overflow occurs in the release viewports.
 10. All isolated fixtures and sessions are cleaned.
 
-Production deployment remains blocked until the release baseline, provider topology, environment values, backup/restore rehearsal, monitoring, and Phase 3 authenticated release rehearsal are approved.
+Production deployment remains blocked until resources and environment values exist, staging proxy behavior is verified, monitoring ownership is configured, and a real staging deployment rehearsal passes. The provider topology, isolated backup/restore rehearsal and Phase 3 authenticated rehearsal are now documented/verified separately.

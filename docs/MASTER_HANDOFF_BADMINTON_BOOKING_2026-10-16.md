@@ -1,5 +1,13 @@
 # MASTER HANDOFF --- WEBSITE ĐẶT SÂN CẦU LÔNG ĐÀ NẴNG
 
+## FINAL PROJECT STABILIZATION PHASE 5B — DEPLOYMENT TOPOLOGY DESIGN (2026-10-20)
+
+Phase 5B selected a small thesis-appropriate topology without provisioning it: Cloudflare Pages for the React/Vite SPA, one long-lived Fly.io Node/Express Machine intended for Sydney, and the existing Supabase PostgreSQL model. The current database configuration identifies only the Supabase region `ap-southeast-2`; no connection material was recorded. The authoritative decision is [DEPLOYMENT_TOPOLOGY.md](DEPLOYMENT_TOPOLOGY.md).
+
+Authenticated traffic requires same-site custom subdomains, for example `app.<domain>` and `api.<domain>`. The existing HttpOnly, Secure, SameSite=Lax host-only cookie works with credentialed CORS and exact Origin/CSRF checks in that model. It does not support full authenticated deployment across unrelated provider preview domains, so those remain public-preview-only. A separate Supabase staging project is required; staging must never reuse production fixtures or credentials.
+
+One backend instance is required until the in-memory auth limiter has an approved shared design. `trust proxy` remains disabled: secure cookie issuance does not use `req.secure`, but client-IP limits use `req.ip`, so staging must observe the provider proxy chain and introduce only a tested narrow trust configuration. Migration ownership remains a manual protected operator gate for the first release. Future CD is designed, not implemented: CI-green main commit → protected staging → readiness/authenticated rehearsal → manual production approval/migration gate → production smoke. No provider resource, DNS, secret, migration, seed, database action or deployment occurred.
+
 ## FINAL PROJECT STABILIZATION PHASE 5A — ZERO-SECRET CI BASELINE (2026-10-20)
 
 Ordinary GitHub Actions CI is now defined in `.github/workflows/ci.yml` for pull requests and pushes to `main`. It pins Node `24.14.1`, uses `npm ci` plus lockfile caching, least-privilege `contents: read`, and cancellation for superseded ref/PR runs. Repository safety rejects tracked runtime `.env` files (while allowing `.env.example`), private keys, dumps, pgpass content, and Playwright auth state. Backend validation runs production dependency audit, Prisma validate/generate with a disposable non-connected loopback URL, and non-database unit tests. Frontend validation runs full and production audits, lint, canonical tests, and production build.

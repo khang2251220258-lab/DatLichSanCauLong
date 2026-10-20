@@ -1,5 +1,11 @@
 # Feature Status
 
+## Final Project Stabilization Phase 5B — deployment topology DESIGN READY (2026-10-20)
+
+[DEPLOYMENT_TOPOLOGY.md](DEPLOYMENT_TOPOLOGY.md) records the approved design: Cloudflare Pages hosts the Vite SPA; one Fly.io backend Machine is intended for Sydney, near the current Supabase `ap-southeast-2` database; staging and production use separate Supabase projects and same-site custom frontend/API subdomains. The cookie/CORS model remains HttpOnly, Secure in production, SameSite=Lax, host-only API cookie, credentialed fetch, exact `FRONTEND_URL` CORS and Origin/CSRF checks. Unrelated provider domains are public-preview-only because they are cross-site.
+
+No provider resource, DNS, secret, CD workflow, migration, seed or deployment was created. The backend remains one instance because rate limiting is process-local. `trust proxy` remains disabled until staging proves the exact proxy/header path and a narrow safe rule is reviewed; it must not be set blindly. The first deployment retains manual operator-controlled Prisma migration gates. **READY FOR STAGING RESOURCE PROVISIONING: YES. READY FOR STAGING DEPLOYMENT: NO. READY FOR PRODUCTION DEPLOYMENT: NO.**
+
 ## Final Project Stabilization Phase 5A — CI workflow IMPLEMENTED, local rehearsal VERIFIED (2026-10-20)
 
 The repository now has zero-secret GitHub Actions validation at `.github/workflows/ci.yml`, triggered by pull requests and pushes to `main`. It pins Node `24.14.1`, uses clean lockfile installs and dependency caching, cancels superseded runs, and grants only `contents: read`. Repository safety rejects tracked runtime environment files, private keys, dumps, pgpass files, and Playwright auth state. Backend validation runs production dependency audit, Prisma validate/generate using a disposable non-connected URL, and the non-database unit suite; frontend validation runs full and production audits, lint, canonical tests, and production build.
