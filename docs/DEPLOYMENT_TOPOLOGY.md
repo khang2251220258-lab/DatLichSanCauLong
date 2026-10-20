@@ -93,6 +93,8 @@ Provider secrets belong to the owner. Future GitHub deployment credentials must 
 
 The first release keeps migrations as a **manual, protected operator gate**: verify target/backup/commit, run `npx prisma migrate status`, run reviewed `npx prisma migrate deploy`, run status again, then deploy and require health/readiness/public smoke. Never use `prisma migrate dev`, `prisma db push` or `prisma migrate reset` in staging or production.
 
+For the empty Supabase staging initialization gate, run `scripts/staging-migrate.ps1` from an operator PowerShell session that already has a process-scoped `STAGING_DATABASE_PASSWORD`. Its default `Preflight` mode verifies the fixed staging target, `verify-full` TLS using the ignored local staging CA, an empty public schema, the committed migration set, and Prisma's pending-migration state without writing to the database. `Apply` is a separate explicit mode and requires `-ConfirmApply APPLY_STAGING_MIGRATIONS`; it is the runner's only path to `prisma migrate deploy`. The runner process-overrides both CLI URL candidates and restores non-secret variables on exit, so `backend/.env` cannot become its migration target.
+
 Future CD is design only:
 
 ```text
