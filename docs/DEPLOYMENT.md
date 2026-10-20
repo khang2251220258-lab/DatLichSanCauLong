@@ -128,6 +128,14 @@ Then use Prisma only for `validate`, `migrate status`, and a read-only connectio
 
 Cleanup may remove only the explicitly disposable restore target after verification. Retain or delete the temporary backup according to the operator retention policy; never commit it. Application rollback remains a redeploy of a prior immutable application artifact and is not equivalent to database restore.
 
+### Phase 4B evidence (2026-10-20)
+
+The application-schema restore portion was rehearsed with PostgreSQL native clients 17.11. A custom-format public-schema archive was validated completely with `pg_restore --list` (exit 0), was non-empty (140,941 bytes), and had SHA-256 `0BD539842C93AF9D7D9708A32A3D6B03B637768B787C423601713961F5CB5B86`. Its TOC contained the expected application objects and no `auth`, `storage`, `realtime`, or `vault` schemas. The artifact remains outside Git in operator-controlled backup storage.
+
+Read-only source evidence was PostgreSQL 17.6, database `postgres`, schema `public`, and migrations `20260922000000_init`, `20261015000000_booking_v2_foundation`, and `20261017000000_recurring_booking_foundation`. A distinct empty loopback PostgreSQL 17.11 rehearsal database was guarded before restore. `pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error` completed with exit 0 and no output warnings. The restored target matched source migration history, 26 public tables, 26 primary keys, 42 foreign keys, 284 checks, 75 indexes, agreed data counts, and Booking #1119's non-PII snapshot. A second read-only source fingerprint matched the pre-backup snapshot; no source mutation, migration, seed, or demo-data change occurred.
+
+Prisma schema validation and client generation passed. The local target server had TLS disabled, while the application's runtime PostgreSQL adapter requires a trusted CA with certificate verification and receives its password from `DATABASE_URL`, not the native client credential file. The backend/Prisma connectivity and HTTP smoke portion was therefore not run against that target; no TLS verification was weakened to force it. The restored target is retained temporarily only for completing that remaining local-TLS rehearsal. This evidence is **partial**, not a production restore gate closure.
+
 ## Rollback
 
 Application rollback means redeploying the previous known-good immutable frontend/backend artifacts with their documented environment contract. Keep the preceding artifact and release commit available.

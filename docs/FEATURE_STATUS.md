@@ -1,5 +1,11 @@
 # Feature Status
 
+## Final Project Stabilization Phase 4B — isolated backup/restore rehearsal PARTIAL (2026-10-20)
+
+The public application schema was restored into a guarded, empty, loopback-only PostgreSQL 17.11 target with native PostgreSQL 17.11 clients. The custom archive validated with `pg_restore --list` (exit 0), `pg_restore` completed with exit 0 and no warnings, and migration history, 26 tables, constraints/indexes, agreed counts, and Booking #1119 matched the fresh source snapshot. A second source read-only fingerprint confirmed no Supabase source mutation, migration, seed, demo-data change, or Booking #1119 change. Prisma validate/generate passed.
+
+This is not yet a complete restore rehearsal: the local PostgreSQL target has TLS disabled, while the runtime adapter requires a trusted CA and certificate verification. Backend connectivity, readiness, Public Facility, Guest Search, and Recurring Search smokes were not forced with weaker TLS or a permanent environment change. The retained local target may be used only to complete that local-TLS smoke step. Provider/domain/proxy topology, staging validation, monitoring ownership, and production deployment remain blocked.
+
 ## Final Project Stabilization Phase 3 — authenticated release rehearsal VERIFIED (2026-10-19)
 
 The isolated authenticated rehearsal covers Customer, Owner, and Admin through the real Login UI, real session cookies, browser navigation, and the development PostgreSQL database. It creates only `TEST_E2E_RELEASE_` records, executes one V2 booking create, Owner confirmation, recurring create, Owner series confirmation, Owner Analytics reads, and one Admin Amenity mutation; exact manifest cleanup and verify-only postflight returned every scoped count to zero. Booking #1119 remained unchanged.
