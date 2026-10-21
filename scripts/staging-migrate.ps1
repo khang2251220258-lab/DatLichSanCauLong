@@ -22,6 +22,7 @@ $expectedMigrations = @(
   '20261015000000_booking_v2_foundation',
   '20261017000000_recurring_booking_foundation'
 )
+$script:committedMigrations = @()
 
 $expectedApplicationTables = @(
   'amenities', 'auth_sessions', 'bank_accounts', 'booking_series', 'booking_slots',
@@ -100,15 +101,48 @@ function Assert-RepositoryGuard {
   }
 }
 
-function Assert-MigrationDirectorySet {
-  $actual = @(
+function Get-CommittedMigrationSet {
+  return @(
     Get-ChildItem (Join-Path $backendRoot 'prisma\migrations') -Directory |
       Sort-Object Name |
       ForEach-Object Name
   )
+}
+
+function Assert-MigrationDirectorySet {
+  $actual = Get-CommittedMigrationSet
   if (@(Compare-Object $expectedMigrations $actual).Count -ne 0) {
     throw 'COMMITTED_MIGRATION_SET_MISMATCH'
   }
+  return @($actual)
+}
+
+function Assert-ExactMigrationSet {
+  param(
+    [Parameter(Mandatory)][string[]]$Committed,
+    [Parameter(Mandatory)][string[]]$Applied
+  )
+
+  $committedValues = @($Committed | ForEach-Object { "$_".Trim() } | Where-Object { $_.Length -gt 0 })
+  $appliedValues = @($Applied | ForEach-Object { "$_".Trim() } | Where-Object { $_.Length -gt 0 })
+  $normalizedCommitted = @($committedValues | Sort-Object -Unique)
+  $normalizedApplied = @($appliedValues | Sort-Object -Unique)
+  if ($normalizedCommitted.Count -ne $committedValues.Count) { throw 'COMMITTED_MIGRATION_DUPLICATE' }
+  if ($normalizedApplied.Count -ne $appliedValues.Count) { throw 'APPLIED_MIGRATION_DUPLICATE' }
+  if (@(Compare-Object $normalizedCommitted $normalizedApplied).Count -ne 0) {
+    throw 'MIGRATION_SET_MISMATCH'
+  }
+}
+
+function Assert-MigrationHistory {
+  param(
+    [Parameter(Mandatory)][string[]]$Committed,
+    [Parameter(Mandatory)][string[]]$Applied,
+    [Parameter(Mandatory)][string]$InvalidRowCount
+  )
+
+  if ($InvalidRowCount -ne '0') { throw 'POST_MIGRATION_HISTORY_INVALID' }
+  Assert-ExactMigrationSet -Committed $Committed -Applied $Applied
 }
 
 function Assert-StagingTargetAndTls {
@@ -157,20 +191,10 @@ function Assert-StagingPreMigrationState {
 }
 
 function Assert-PrismaMigrationStatus {
-  $result = Invoke-Native -FilePath $script:nodePath -Arguments @(
+  Invoke-Native -FilePath $script:nodePath -Arguments @(
     '.\node_modules\prisma\build\index.js', 'migrate', 'status',
     '--config', '.\prisma.config.js'
-  ) -FailureCode 'PRISMA_MIGRATE_STATUS_FAILED' -AllowedExitCodes @(0, 1)
-
-  $text = (@($result.Output | ForEach-Object { "$_" }) -join "`n")
-  foreach ($migration in $expectedMigrations) {
-    if ($text -notmatch [regex]::Escape($migration)) {
-      throw 'PRISMA_STATUS_MIGRATION_SET_MISMATCH'
-    }
-  }
-  if ($text -match '(?i)drift|diverg|failed migration|migration history.*conflict') {
-    throw 'PRISMA_STATUS_MIGRATION_HISTORY_INVALID'
-  }
+  ) -FailureCode 'PRISMA_MIGRATE_STATUS_FAILED' | Out-Null
 }
 
 function Assert-StagingPostMigrationState {
@@ -194,9 +218,7 @@ ORDER BY migration_name;
 SELECT count(*) FROM public._prisma_migrations
 WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;
 '@
-  if ($invalidRows -ne '0' -or @(Compare-Object $expectedMigrations $applied).Count -ne 0) {
-    throw 'POST_MIGRATION_HISTORY_INVALID'
-  }
+  Assert-MigrationHistory -Committed $script:committedMigrations -Applied $applied -InvalidRowCount $invalidRows
 
   return [PSCustomObject]@{
     BaseTables = $actualTables.Count
@@ -270,7 +292,7 @@ try {
   ) -FailureCode 'STAGING_CA_CERTIFICATE_INVALID' | Out-Null
 
   Assert-RepositoryGuard
-  Assert-MigrationDirectorySet
+  $script:committedMigrations = Assert-MigrationDirectorySet
 
   $password = [Environment]::GetEnvironmentVariable('STAGING_DATABASE_PASSWORD', 'Process')
   $escapedPassword = [Uri]::EscapeDataString($password)
@@ -299,7 +321,6 @@ try {
     Invoke-Native -FilePath $script:nodePath -Arguments @(
       '.\node_modules\prisma\build\index.js', 'generate', '--config', '.\prisma.config.js'
     ) -FailureCode 'PRISMA_GENERATE_FAILED' | Out-Null
-    Assert-PrismaMigrationStatus
   }
   finally { Pop-Location }
 
@@ -307,6 +328,11 @@ try {
   $stagingState = Get-StagingState
   if ($stagingState.Name -eq 'UNEXPECTED') {
     throw "STAGING_STATE_UNEXPECTED:$($stagingState.Failure)"
+  }
+  if ($stagingState.Name -eq 'EXPECTED_MIGRATED') {
+    Push-Location $backendRoot
+    try { Assert-PrismaMigrationStatus }
+    finally { Pop-Location }
   }
 
   Write-Host "STAGING STATE: $($stagingState.Name)"
