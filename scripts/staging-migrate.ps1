@@ -131,7 +131,7 @@ SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid();
   return $tlsVersion
 }
 
-function Assert-EmptyPublicSchema {
+function Get-StagingPublicSchemaInventory {
   $baseTableCount = Invoke-StagingPsqlScalar @'
 SELECT count(*) FROM information_schema.tables
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
@@ -140,13 +140,23 @@ WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
 SELECT CASE WHEN to_regclass('public._prisma_migrations') IS NULL
   THEN 'ABSENT' ELSE 'PRESENT' END;
 '@
-  if ($baseTableCount -ne '0' -or $migrationTableState -ne 'ABSENT') {
-    throw 'STAGING_SCHEMA_NOT_EMPTY'
-  }
   return [PSCustomObject]@{ BaseTables = $baseTableCount; MigrationTable = $migrationTableState }
 }
 
-function Assert-PrismaPendingMigrationState {
+function Assert-StagingPreMigrationState {
+  $tlsVersion = Assert-StagingTargetAndTls
+  $inventory = Get-StagingPublicSchemaInventory
+  if ($inventory.BaseTables -ne '0' -or $inventory.MigrationTable -ne 'ABSENT') {
+    throw 'STAGING_SCHEMA_NOT_EMPTY'
+  }
+  return [PSCustomObject]@{
+    BaseTables = $inventory.BaseTables
+    MigrationTable = $inventory.MigrationTable
+    TlsVersion = $tlsVersion
+  }
+}
+
+function Assert-PrismaMigrationStatus {
   $result = Invoke-Native -FilePath $script:nodePath -Arguments @(
     '.\node_modules\prisma\build\index.js', 'migrate', 'status',
     '--config', '.\prisma.config.js'
@@ -155,7 +165,7 @@ function Assert-PrismaPendingMigrationState {
   $text = (@($result.Output | ForEach-Object { "$_" }) -join "`n")
   foreach ($migration in $expectedMigrations) {
     if ($text -notmatch [regex]::Escape($migration)) {
-      throw 'PRISMA_STATUS_PENDING_MIGRATION_SET_MISMATCH'
+      throw 'PRISMA_STATUS_MIGRATION_SET_MISMATCH'
     }
   }
   if ($text -match '(?i)drift|diverg|failed migration|migration history.*conflict') {
@@ -163,7 +173,8 @@ function Assert-PrismaPendingMigrationState {
   }
 }
 
-function Assert-PostMigrationSchema {
+function Assert-StagingPostMigrationState {
+  $tlsVersion = Assert-StagingTargetAndTls
   $actualTables = @(Invoke-StagingPsqlLines @'
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -187,12 +198,33 @@ WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;
     throw 'POST_MIGRATION_HISTORY_INVALID'
   }
 
+  return [PSCustomObject]@{
+    BaseTables = $actualTables.Count
+    MigrationTable = 'PRESENT'
+    TlsVersion = $tlsVersion
+  }
+}
+
+function Assert-StagingBusinessDataEmpty {
   foreach ($table in $expectedApplicationTables) {
     $rows = Invoke-StagingPsqlScalar "SELECT count(*) FROM public.`"$table`";"
     if ($rows -ne '0') { throw "UNEXPECTED_STAGING_APPLICATION_DATA:$table" }
   }
+}
 
-  return $actualTables.Count
+function Get-StagingState {
+  $inventory = Get-StagingPublicSchemaInventory
+  if ($inventory.BaseTables -eq '0' -and $inventory.MigrationTable -eq 'ABSENT') {
+    return [PSCustomObject]@{ Name = 'EMPTY'; Inventory = $inventory; Failure = $null }
+  }
+
+  try {
+    $postMigration = Assert-StagingPostMigrationState
+    return [PSCustomObject]@{ Name = 'EXPECTED_MIGRATED'; Inventory = $postMigration; Failure = $null }
+  }
+  catch {
+    return [PSCustomObject]@{ Name = 'UNEXPECTED'; Inventory = $inventory; Failure = $_.Exception.Message }
+  }
 }
 
 function Invoke-PrismaRuntimeSelect {
@@ -259,9 +291,6 @@ try {
   $env:PGSSLROOTCERT = $stagingCaPath
   $env:PGCONNECT_TIMEOUT = '12'
 
-  $tlsVersion = Assert-StagingTargetAndTls
-  $emptySchema = Assert-EmptyPublicSchema
-
   Push-Location $backendRoot
   try {
     Invoke-Native -FilePath $script:nodePath -Arguments @(
@@ -270,31 +299,65 @@ try {
     Invoke-Native -FilePath $script:nodePath -Arguments @(
       '.\node_modules\prisma\build\index.js', 'generate', '--config', '.\prisma.config.js'
     ) -FailureCode 'PRISMA_GENERATE_FAILED' | Out-Null
-    Assert-PrismaPendingMigrationState
+    Assert-PrismaMigrationStatus
   }
   finally { Pop-Location }
 
-  # Final mutation gate: rerun all target-sensitive checks immediately before Apply.
   $tlsVersion = Assert-StagingTargetAndTls
-  $emptySchema = Assert-EmptyPublicSchema
-  Assert-RepositoryGuard
+  $stagingState = Get-StagingState
+  if ($stagingState.Name -eq 'UNEXPECTED') {
+    throw "STAGING_STATE_UNEXPECTED:$($stagingState.Failure)"
+  }
 
-  Write-Host 'FINAL MUTATION GATE: PASS'
+  Write-Host "STAGING STATE: $($stagingState.Name)"
   Write-Host "TARGET: ${stagingHost}:$stagingPort/$stagingDatabase"
   Write-Host "USER: $stagingUser"
   Write-Host "TLS: verify-full PASS ($tlsVersion)"
-  Write-Host "PUBLIC BASE TABLES: $($emptySchema.BaseTables)"
-  Write-Host "_prisma_migrations: $($emptySchema.MigrationTable)"
+  Write-Host "PUBLIC BASE TABLES: $($stagingState.Inventory.BaseTables)"
+  Write-Host "_prisma_migrations: $($stagingState.Inventory.MigrationTable)"
   Write-Host "EXPECTED MIGRATIONS: $($expectedMigrations.Count)"
   Write-Host 'PRODUCTION DATABASE: NOT USED'
   Write-Host 'SEED: NOT RUN'
 
   if ($Mode -eq 'Preflight') {
+    if ($stagingState.Name -eq 'EMPTY') {
+      Write-Host 'EXPECTED PENDING MIGRATIONS: 3'
+      Write-Host 'READY FOR FIRST APPLY: YES'
+      Write-Host 'MIGRATION: NOT RUN'
+      return
+    }
+
+    Push-Location $backendRoot
+    try { Invoke-PrismaRuntimeSelect }
+    finally { Pop-Location }
+    Write-Host 'MIGRATION HISTORY: PASS'
+    Write-Host 'APPLICATION SCHEMA: PASS'
+    Write-Host 'PRISMA RUNTIME SELECT: PASS'
+    Write-Host 'READY FOR APPLICATION DEPLOYMENT VALIDATION: YES'
     Write-Host 'MIGRATION: NOT RUN'
     return
   }
 
   if ($ConfirmApply -cne 'APPLY_STAGING_MIGRATIONS') { throw 'APPLY_CONFIRMATION_REQUIRED' }
+
+  if ($stagingState.Name -eq 'EXPECTED_MIGRATED') {
+    Push-Location $backendRoot
+    try { Invoke-PrismaRuntimeSelect }
+    finally { Pop-Location }
+    Write-Host 'APPLY: ALREADY_MIGRATED (NO-OP)'
+    Write-Host 'MIGRATION HISTORY: PASS'
+    Write-Host 'APPLICATION SCHEMA: PASS'
+    Write-Host 'PRISMA RUNTIME SELECT: PASS'
+    return
+  }
+
+  # FINAL MUTATION GATE: only an independently rechecked EMPTY target may deploy.
+  $tlsVersion = Assert-StagingTargetAndTls
+  $preMigration = Assert-StagingPreMigrationState
+  Assert-RepositoryGuard
+
+  Write-Host 'FINAL MUTATION GATE: PASS'
+  Write-Host 'STAGING STATE: EMPTY'
 
   Push-Location $backendRoot
   try {
@@ -305,14 +368,15 @@ try {
   finally { Pop-Location }
 
   $tlsVersion = Assert-StagingTargetAndTls
-  $tableCount = Assert-PostMigrationSchema
+  $postMigration = Assert-StagingPostMigrationState
+  Assert-StagingBusinessDataEmpty
   Push-Location $backendRoot
   try { Invoke-PrismaRuntimeSelect }
   finally { Pop-Location }
   Assert-RepositoryGuard
 
   Write-Host 'PRISMA MIGRATE DEPLOY: PASS'
-  Write-Host "POST-MIGRATION TABLES: $tableCount"
+  Write-Host "POST-MIGRATION TABLES: $($postMigration.BaseTables)"
   Write-Host 'MIGRATION HISTORY: PASS'
   Write-Host 'STAGING BUSINESS DATA: NOT CREATED'
 }
