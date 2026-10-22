@@ -1,5 +1,13 @@
 # Home Frontend Specification
 
+## Search-first redesign — 2026-10-21
+
+`/` is now a discovery entry point rather than a Facility showcase. The first meaningful content after the shared public header is the search form: `q`, `district`, `date`, `start_time`, and `end_time`. Its submit navigates to the existing `/facilities` route and uses only the already-supported one-date search contract. Values are trim/NFC-normalized where appropriate; blank `q` and `district` are omitted. The client validates the 30-minute, 30-day and 1–6-slot interval before navigation, while the backend remains authoritative.
+
+The Home-only `GET /facilities?page=1&page_size=4` showcase, Facility cards, Owner CTA, long process/benefit sections and their loading/error states have been removed. Home makes no Facility API request until Facility List loads after navigation. Six quick district links are derived from the canonical generated registry and link to `/facilities?district=...`; they are not a second registry or popularity ranking. Header/Footer remain shared. Search results, availability, booking and recurring discovery stay in their existing routes; no duplicate listing logic, new endpoint, schema or backend behavior was added. Targeted Home 5/5 and full frontend 402/402, lint, production build and production dependency audit passed.
+
+The older Phase 1 showcase material below is historical where it conflicts with this current Search-first Home behavior.
+
 ## Implementation — 2026-10-05
 
 Home Phase1 đã triển khai tại `/`, thay scaffold; các ghi nhận chưa implementation dưới đây là lịch sử duyệt spec. Code features/home/Home.jsx và home.css; PublicLayout Header/Footer dùng chung, NavLink active theo route, FacilityCard chia sẻ với List. API/Auth/registry generated giữ nguyên; search district và card navigation thật, CTA Owner không mutation. 53 tests/lint/build PASS, responsive4/2/1 cột tại1440/800/390px không tràn ngang. Giới hạn kiểm chứng tại FEATURE_STATUS. Không Booking frontend hoặc filter ngày/giờ.

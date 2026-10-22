@@ -58,7 +58,11 @@ Evidence: backend local **93/93**; recurring PostgreSQL **17/17**; Recurring Sea
 
 Evidence: Public Search targeted **20/20 PASS**, responsive read-only Playwright **3/3 PASS** with zero pre-submit and exactly one post-submit recurring GET, full frontend **402/402 PASS** using the stable single-worker `vmThreads` run, lint and production build PASS. Four generated screenshots are **review candidates**, not approved references. Backend/database/schema/migration/demo data and Booking #1119 were unchanged.
 
-## Public Home Facility Showcase — UI REDESIGN VERIFIED (2026-10-17)
+## HISTORICAL/SUPERSEDED — Public Home Facility Showcase UI redesign (2026-10-17)
+
+## Search-first Home — UI/UX Improvement Phase 6A (2026-10-21)
+
+COMPLETE: Home `/` no longer fetches or renders a promotional Facility showcase. It is a search-first entry point with `q`, `district`, `date`, `start_time` and `end_time`, navigating to the existing one-date Facility List contract. Quick filters use the generated canonical district registry. No new backend/API/schema/database behavior was introduced. The removed Home-only showcase request eliminates one public Facility request before a user begins discovery; Facility List retains the authoritative data loading, matching Courts and booking path. Targeted Home **5/5**, full frontend **402/402**, lint, production build and `npm audit --omit=dev` PASS. No database access or mutation, migration, deploy, commit or push.
 
 The Home Facility section now uses an explicit `FacilityCard` Home variant with image-first 3:2 media, strong Facility identity, district/address hierarchy, at most three amenity chips plus an authoritative remainder count, and the lightweight **Xem sân** action. The list DTO has no price summary, so the showcase does not display or derive a price. Search Results retain their existing availability-focused `matching_courts`, URL state, and **Xem chi tiết** behavior.
 

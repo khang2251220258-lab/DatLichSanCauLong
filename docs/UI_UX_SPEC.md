@@ -204,11 +204,15 @@ Chọn một JPEG/PNG <=5,000,000bytes, <=25,000,000pixels, ảnh tĩnh; fronten
 
 Theo [BOOKING_FRONTEND_SPEC.md](specs/BOOKING_FRONTEND_SPEC.md): selection React memory → Confirmation trước POST → `/bookings/:id`; `/bookings` phục hồi lịch cá nhân. Guest đăng nhập rồi chọn lại, không restore/auto-POST. Confirmation hiển thị giá dự kiến, sau create dùng snapshot. Countdown server-time chỉ PENDING_PAYMENT, zero/focus GET đồng bộ; lỗi không tự EXPIRED. Không Payment. Quyết định này thay boundary CTA disabled/no total quote của Detail phase cũ tại bước Confirmation; các ghi nhận cũ bên dưới là lịch sử.
 
-## Home Phase 1 — implementation 2026-10-05
+## HISTORICAL/SUPERSEDED — Home Phase 1 implementation 2026-10-05
 
 `/` đã thay scaffold bằng Home theo PNG và các ngoại lệ approved. Shared PublicLayout/Auth/API/FacilityCard/registry generated; active navigation theo route, Home card4/2/1 cột, district tới List và card tới Detail. Static copy không số liệu/feature giả, Owner CTA không gửi request, ngày/giờ disabled có giải thích. Tests53/53/lint/build PASS; xem FEATURE_STATUS. Những ghi nhận Home chưa triển khai trong phần review cũ là lịch sử, Booking frontend vẫn chưa có.
 
-### Public Home Facility Showcase redesign — 2026-10-17
+### Search-first Home redesign — 2026-10-21
+
+Trang `/` hiện ưu tiên tác vụ tìm sân. Hero chứa form `q`, `district`, ngày, giờ bắt đầu và giờ kết thúc; submit đi tới `/facilities` với URL state của contract one-date search hiện hành. Khu vực nhanh lấy từ registry generated. Home không còn section Facility showcase hoặc request list riêng, CTA Owner, quy trình/benefit marketing; Header/Footer dùng chung được giữ. Facility List là nơi duy nhất tải và hiển thị kết quả, bao gồm availability matching courts. Desktop, tablet và mobile dùng cùng form semantic, xếp dọc ở breakpoint hẹp.
+
+### HISTORICAL/SUPERSEDED — Public Home Facility Showcase redesign 2026-10-17
 
 Section Facility trên Home dùng variant discovery riêng của shared `FacilityCard`: ảnh 3:2 là visual focus, tên tối đa hai dòng, district/address là location hierarchy, tối đa ba amenity chip và số còn lại lấy trực tiếp từ list DTO. CTA **Xem sân** dẫn tới Facility Detail; **Xem tất cả** dẫn `/facilities`. Giá không xuất hiện vì public list DTO hiện không có authoritative price summary. Search variant giữ `matching_courts`, URL context và CTA **Xem chi tiết**; không có detail fetch theo card.
 
