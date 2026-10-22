@@ -89,7 +89,7 @@ it.each(['0','168'])('accepts boundary cutoff %s', async value => {
 it.each([
   ['', null], ['-1', /số nguyên/], ['169', /0 đến 168/], ['1.5', /số nguyên/], ['1e2', /số nguyên/], ['abc', null],
 ])('rejects invalid cutoff %j locally', async (value, message) => {
-  const calls = transport(); mount(); const input = await screen.findByLabelText('Cho phép hủy trước giờ chơi');
+  const calls = transport(); mount(); const input = await screen.findByDisplayValue('24');
   fireEvent.change(input, { target: { value } });
   const button = screen.getByRole('button', { name: 'Lưu chính sách' });
   if (value === '') expect(button.disabled).toBe(true); else fireEvent.click(button);
