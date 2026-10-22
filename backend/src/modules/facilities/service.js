@@ -14,6 +14,10 @@ function present(row) {
   return {...row,id:String(row.id),owner_id:String(row.owner_id),reviewed_by:row.reviewed_by === null ? null : String(row.reviewed_by),
     latitude:row.latitude?.toString() ?? null,longitude:row.longitude?.toString() ?? null,opening_time:clock(row.opening_time),closing_time:clock(row.closing_time)};
 }
+function presentOwnerList(row) {
+  const {_count, ...facility} = row;
+  return {...present(facility),court_count:_count.courts};
+}
 async function actorCheck(tx, actor, admin) {
   const session = await tx.authSession.findUnique({where:{id:actor.id},include:{user:{include:{ownerProfile:true}}}});
   if (!session || session.user_id !== BigInt(actor.user.id) || session.revoked_at || session.expires_at <= await now(tx) || session.user.status !== 'ACTIVE') throw new AuthError(401,'SESSION_EXPIRED','Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
@@ -51,9 +55,10 @@ export function createFacilityService(db, districts = supportedDistricts) {
     async list(actor, query, admin) {
       const where = {...(admin ? (query.owner_id ? {owner_id:query.owner_id} : {}) : {owner_id:BigInt(actor.user.id)}),...(query.status ? {status:query.status} : {})};
       const [rows,total] = await db.$transaction(async tx => Promise.all([
-        tx.facility.findMany({where,orderBy:[{created_at:'desc'},{id:'desc'}],skip:(query.page-1)*query.page_size,take:query.page_size}),tx.facility.count({where}),
+        tx.facility.findMany({where,orderBy:[{created_at:'desc'},{id:'desc'}],skip:(query.page-1)*query.page_size,take:query.page_size,
+          ...(admin ? {} : {include:{_count:{select:{courts:true}}}})}),tx.facility.count({where}),
       ]),{...options,isolationLevel:'RepeatableRead'});
-      return {items:rows.map(present),total};
+      return {items:rows.map(row => admin ? present(row) : presentOwnerList(row)),total};
     },
     async detail(actor,id,admin) {
       const row = await db.facility.findFirst({where:{id,...(admin ? {} : {owner_id:BigInt(actor.user.id)})},...(admin ? {include:{owner:{select:{user:{select:{id:true,full_name:true,email:true,phone:true,status:true}}}}}} : {})});

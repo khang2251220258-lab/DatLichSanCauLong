@@ -71,12 +71,19 @@ const adminFacilityCore = item => exactFields(item, facilityFields)
   && nullableInstant(item.submitted_at) && (item.reviewed_by === null || positiveId(item.reviewed_by)) && nullableInstant(item.reviewed_at)
   && nullableString(item.rejection_reason) && nullableInstant(item.suspended_at) && nullableString(item.suspension_reason)
   && instant(item.created_at) && instant(item.updated_at) && facilityStateMetadata(item);
+const ownerFacilityFields = new Set([...facilityFields,'court_count']);
+const ownerFacilityCore = item => exactFields(item, ownerFacilityFields)
+  && adminFacilityCore(Object.fromEntries(Object.entries(item).filter(([key]) => key !== 'court_count')))
+  && Number.isSafeInteger(item.court_count) && item.court_count >= 0;
 const adminFacilityOwner = owner => exactFields(owner, adminFacilityOwnerFields)
   && positiveId(owner.id) && typeof owner.full_name === 'string' && owner.full_name.trim().length > 0
   && typeof owner.email === 'string' && owner.email.trim().length > 0
   && (owner.phone === null || typeof owner.phone === 'string') && ['ACTIVE','LOCKED'].includes(owner.status);
 export const adminFacilityListResponse = envelope => exactFields(envelope, envelopeFields) && Array.isArray(envelope.data)
   && envelope.data.every(adminFacilityCore) && exactFields(envelope.meta, listMetaFields)
+  && pagination(envelope.meta) && instant(envelope.meta.server_time);
+export const ownerFacilityListResponse = envelope => exactFields(envelope, envelopeFields) && Array.isArray(envelope.data)
+  && envelope.data.every(ownerFacilityCore) && exactFields(envelope.meta, listMetaFields)
   && pagination(envelope.meta) && instant(envelope.meta.server_time);
 export const adminFacilityDetailResponse = expectedId => envelope => exactFields(envelope, envelopeFields) && object(envelope.data)
   && exactFields(envelope.data, new Set([...facilityFields,'owner']))

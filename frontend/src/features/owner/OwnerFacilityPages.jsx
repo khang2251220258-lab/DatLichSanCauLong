@@ -4,10 +4,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import districts from '../../generated/districts.json';
 import { OwnerFacilityNav, OwnerLayout, OwnerPager, ownerError, useOwnerApi, useOwnerRead } from './OwnerShared';
 import './owner-management.css';
-import { arrayResponse, detailResponse, listResponse } from '../../services/responseValidators';
+import { arrayResponse, detailResponse, listResponse, ownerFacilityListResponse } from '../../services/responseValidators';
 import { AccessibleModal } from '../../components/AccessibleModal';
 import { facilityStatusLabels } from '../../domain/statusLabels';
-import { protectedIdentity, readProtectedSnapshot, writeProtectedSnapshot } from '../../services/protectedReadCache';
 
 const facilityLabels = facilityStatusLabels;
 const courtLabels = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Tạm ngưng' };
@@ -43,24 +42,7 @@ function StatusBadge({ status, type = 'facility' }) { const labels = type === 'c
 
 export function OwnerFacilityList() {
   const [params, setParams] = useSearchParams(), page = Math.max(1, Number(params.get('page')) || 1);
-  const read = useOwnerRead(`/owner/facilities?page=${page}&page_size=20`, listResponse, { cache:true }), rows = useMemo(() => read.data?.data || [], [read.data]), auth = useOwnerApi();
-  const identity = protectedIdentity(auth.user);
-  const [counts, setCounts] = useState({});
-  useEffect(() => {
-    if (!rows.length) { setCounts({}); return; }
-    let active = true;
-    const paths = rows.map(facility => [facility, `/owner/facilities/${facility.id}/courts?page=1&page_size=1`]);
-    const cached = Object.fromEntries(paths.flatMap(([facility,path]) => {
-      const value = readProtectedSnapshot(identity, path);
-      return value ? [[facility.id, value]] : [];
-    }));
-    setCounts(cached);
-    Promise.all(paths.filter(([facility]) => !Object.hasOwn(cached, facility.id)).map(async ([facility,path]) => {
-      try { const result = await auth.request(path); writeProtectedSnapshot(identity, path, result.meta.total); return [facility.id, result.meta.total]; }
-      catch { return [facility.id, null]; }
-    })).then(entries => { if (active) setCounts(current => ({ ...current, ...Object.fromEntries(entries) })); });
-    return () => { active = false; };
-  }, [auth, identity, rows]);
+  const read = useOwnerRead(`/owner/facilities?page=${page}&page_size=20`, ownerFacilityListResponse, { cache:true }), rows = read.data?.data || [];
   const hasSnapshot = Boolean(read.data);
   return <OwnerLayout><header className="ofl-heading"><div><span className="ofl-eyebrow">Quản lý cơ sở</span><h1>Cơ sở của tôi</h1><p>Theo dõi thông tin, trạng thái duyệt và cấu hình vận hành của từng cơ sở.</p></div><Link className="om-primary ofl-create" to="/owner/facilities/new"><span aria-hidden="true">＋</span> Thêm cơ sở</Link></header>
     {read.loading && !hasSnapshot ? <div className="ofl-loading" role="status" aria-label="Đang tải danh sách cơ sở"><div className="ofl-loading-head"><span/><span/></div>{[0,1,2].map(item => <div className="ofl-skeleton" key={item} aria-hidden="true"><span/><span/><span/><span/></div>)}</div>
@@ -69,7 +51,7 @@ export function OwnerFacilityList() {
       : <><div className="ofl-list-head"><div><h2>Danh sách cơ sở</h2><p>{read.data.meta.total} cơ sở trong tài khoản của bạn</p></div>{read.busy && <span className="ofl-sync" role="status"><i aria-hidden="true"/>Đang cập nhật…</span>}</div>
         {read.error && <div className="ofl-refresh-error" role="alert"><span>Không thể cập nhật dữ liệu mới nhất. Danh sách gần nhất vẫn được giữ lại.</span><button onClick={read.refresh}>Thử lại</button></div>}
         <div className="om-table facility ofl-table" role="table" aria-label="Danh sách cơ sở"><div className="om-row om-head" role="row"><span role="columnheader">Cơ sở</span><span role="columnheader">Địa điểm</span><span role="columnheader">Vận hành</span><span role="columnheader">Trạng thái</span><span role="columnheader" className="ofl-action-label">Thao tác</span></div>
-          <div role="rowgroup">{rows.map(f => <article className="om-row ofl-row" role="row" key={f.id}><div className="ofl-facility" role="cell" data-label="Cơ sở"><span className="ofl-mark" aria-hidden="true">⌂</span><div><strong>{f.name}</strong><small>Mã cơ sở #{f.id}</small></div></div><div className="ofl-location" role="cell" data-label="Địa điểm"><strong>{f.district}</strong><span>{f.address}</span></div><div className="ofl-operation" role="cell" data-label="Vận hành"><span><small>Giờ hoạt động</small><strong>{f.opening_time}–{f.closing_time}</strong></span><span><small>Số sân</small><strong>{Object.hasOwn(counts, f.id) ? (counts[f.id] ?? 'Không tải được') : 'Đang tải…'}</strong></span></div><div role="cell" data-label="Trạng thái"><StatusBadge status={f.status}/></div><div className="ofl-action" role="cell"><Link className="om-outline" aria-label={`Xem chi tiết ${f.name}`} to={`/owner/facilities/${f.id}`}>Xem chi tiết <span aria-hidden="true">→</span></Link></div></article>)}</div>
+          <div role="rowgroup">{rows.map(f => <article className="om-row ofl-row" role="row" key={f.id}><div className="ofl-facility" role="cell" data-label="Cơ sở"><span className="ofl-mark" aria-hidden="true">⌂</span><div><strong>{f.name}</strong><small>Mã cơ sở #{f.id}</small></div></div><div className="ofl-location" role="cell" data-label="Địa điểm"><strong>{f.district}</strong><span>{f.address}</span></div><div className="ofl-operation" role="cell" data-label="Vận hành"><span><small>Giờ hoạt động</small><strong>{f.opening_time}–{f.closing_time}</strong></span><span><small>Số sân</small><strong>{f.court_count}</strong></span></div><div role="cell" data-label="Trạng thái"><StatusBadge status={f.status}/></div><div className="ofl-action" role="cell"><Link className="om-outline" aria-label={`Xem chi tiết ${f.name}`} to={`/owner/facilities/${f.id}`}>Xem chi tiết <span aria-hidden="true">→</span></Link></div></article>)}</div>
         </div><OwnerPager meta={read.data.meta} onPage={next => setParams(next > 1 ? { page: String(next) } : {})}/></>}
   </OwnerLayout>;
 }

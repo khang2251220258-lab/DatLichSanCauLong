@@ -246,7 +246,7 @@ Mọi route O đều truy owner_id từ session và kiểm tra tài nguyên thu�
 | Method / path | Request | Response chính | Lỗi chính |
 | --- | --- | --- | --- |
 | GET /owner/dashboard | Không | Số Facility/booking cần xử lý của mình | Lỗi chung |
-| GET /owner/facilities | status?, phân trang | Cơ sở mọi trạng thái của mình | 422 status |
+| GET /owner/facilities | status?, phân trang | Cơ sở mọi trạng thái của mình, gồm `court_count` nguyên không âm (tổng Court ACTIVE/INACTIVE hiện có) | 422 status |
 | POST /owner/facilities | name, address, district, phone, description?, opening_time, closing_time | 201 Facility DRAFT, owner_id từ phiên | 422 input/giờ chưa hỗ trợ |
 | GET /owner/facilities/{id} | Không | Chi tiết quản lý + approval reason | 404 |
 | PATCH /owner/facilities/{id} | Các trường thông tin được phép như create | Facility cập nhật; REJECTED → DRAFT | 409 FACILITY_EDIT_NOT_ALLOWED cho PENDING/ACTIVE/SUSPENDED |

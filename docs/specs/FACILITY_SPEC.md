@@ -22,7 +22,7 @@ Owner chỉ sửa DRAFT (giữ DRAFT) hoặc REJECTED (về DRAFT); PENDING/ACTI
 
 Submit/approve/activate kiểm tra OwnerProfile và User CUSTOMER ACTIVE cùng core hợp lệ; thiếu/quyền không hợp lệ bị từ chối. Khóa Facility trước đọc lại state; để ổn định owner status khi ghi, khóa Owner User trước Facility, tương thích User → OwnerRequest và Facility → Court của các flow hiện có. Không chuyển owner, không xóa Facility, không tạo module con hoặc notification. Delete tiếp tục TODO.
 
-List page mặc định 1 >=1, page_size mặc định 20 trong 1–100, order created_at DESC/id DESC. Owner có status filter, Admin có status/owner_id. Owner lấy ownership từ session; ngoài quyền trả 404, thiếu capability 403. POST/PATCH dùng Origin/CSRF. List/detail core chỉ trả dữ liệu Facility; Admin detail thêm Owner id/full_name/email/phone/status, không credential hoặc aggregate giả.
+List page mặc định 1 >=1, page_size mặc định 20 trong 1–100, order created_at DESC/id DESC. Owner có status filter, Admin có status/owner_id. Owner list thêm `court_count` nguyên không âm, là số Court ACTIVE/INACTIVE hiện có của từng Facility trong page và được backend aggregate cùng list; không tạo API count riêng. Admin/Public DTO không thay đổi. Owner lấy ownership từ session; ngoài quyền trả 404, thiếu capability 403. POST/PATCH dùng Origin/CSRF. List/detail core chỉ trả dữ liệu Facility; Admin detail thêm Owner id/full_name/email/phone/status, không credential hoặc aggregate giả.
 
 Quyết định dữ liệu ngày 2026-09-26 thay thế blocker district trước đó. Giữ nguyên field district VARCHAR(100), không rename hoặc migration.
 
