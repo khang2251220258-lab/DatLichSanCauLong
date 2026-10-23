@@ -74,8 +74,8 @@ Ngoại lệ Booking Configuration: GET bảng giá trả toàn bộ tập ≤48
 | POST /auth/login | P | email, password | 200 user + csrf_token; set session cookie | 401 INVALID_CREDENTIALS; 403 ACCOUNT_LOCKED |
 | GET /auth/session | U | Không | user id/role/capabilities/has_local_password/profile + csrf_token | 401 SESSION_EXPIRED |
 | POST /auth/logout | U/phiên đã hết | Không | 204 revoke phiên và clear cookie | 403 CSRF nếu có phiên |
-| GET /auth/google | P | Không | 302 Google OAuth, gắn state | 503 GOOGLE_AUTH_NOT_CONFIGURED |
-| GET /auth/google/callback | P + OAuth state | code, state hoặc lỗi Google | 302 route frontend; cookie khi thành công | OAuth thất bại/GOOGLE_LOGIN_UNAVAILABLE qua mã lỗi an toàn trên redirect |
+| GET /auth/google | P | Không | 302 Google OAuth, state cookie HttpOnly ký/hạn 10 phút | 503 GOOGLE_AUTH_NOT_CONFIGURED; 429 RATE_LIMITED |
+| GET /auth/google/callback | P + OAuth state | code, state hoặc lỗi Google | 302 `/login?google=<allow-list>`; set application cookie khi thành công | `google_cancelled`, `google_failed`, `account_exists`, `account_inactive` qua redirect an toàn |
 | POST /auth/forgot-password | P | email | 202 cùng message cho mọi email hợp lệ, không lộ tồn tại | 422 email sai định dạng; 429 rate limit; 503 AUTH_EMAIL_UNAVAILABLE chỉ khi dịch vụ chung không sẵn sàng |
 | POST /auth/reset-password | P | token, new_password | 200 đổi mật khẩu, tiêu thụ token, revoke phiên, yêu cầu login | 422 INVALID_RESET_TOKEN / VALIDATION_ERROR; 429 |
 | POST /auth/change-password | U | current_password, new_password | 200 yêu cầu đăng nhập lại, clear cookie | 422 INVALID_CURRENT_PASSWORD; 409 PASSWORD_NOT_CONFIGURED |
@@ -454,7 +454,7 @@ Public sử dụng facilities/courts/amenities/reviews; Customer dùng auth/user
 - POST register/login/logout bắt buộc Origin khớp FRONTEND_URL. Logout phiên hợp lệ cần X-CSRF-Token, revoke phiên hiện tại; phiên hết hạn trả 204 và clear cookie sau kiểm tra Origin.
 - Register 5/15 phút/IP; login 20/15 phút/IP; sai credentials hoặc ACCOUNT_LOCKED tính vào 5 lần thất bại/15 phút/email normalized. Validation lỗi không tăng email counter. Vượt ngưỡng trả 429 RATE_LIMITED + Retry-After giây; login thành công không xóa counter thất bại. Cửa sổ cố định; request login cùng email tuần tự hóa.
 - Error envelope theo API Conventions, request_id do server tạo; JSON sai trả 422, body quá 16 KiB trả 413 PAYLOAD_TOO_LARGE. Không lộ Prisma/SQL/stack.
-- `/users/me` read/update tên và phone đã triển khai; Google Login, đổi email và avatar upload chưa triển khai. Owner Request được triển khai riêng và giữ snapshot tại thời điểm submit.
+- `/users/me` read/update tên và phone đã triển khai; Google Login qua backend OAuth đã triển khai, còn đổi email và avatar upload chưa triển khai. Owner Request được triển khai riêng và giữ snapshot tại thời điểm submit.
 
 ## Password endpoints — Phase 2 implementation
 

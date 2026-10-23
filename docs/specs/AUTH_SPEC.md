@@ -2,7 +2,7 @@
 
 ## Implementation status — 2026-10-07
 
-Backend register/login/session/logout/forgot/reset/change và frontend login/register/forgot/reset/change-password trong Account Center đã triển khai. Google Login vẫn DEFERRED; Google-only account không được dùng reset/change để tạo local password.
+Backend register/login/session/logout/forgot/reset/change và frontend login/register/forgot/reset/change-password trong Account Center đã triển khai. Google Login dùng OAuth authorization-code qua backend; Google-only account không được dùng reset/change để tạo local password.
 
 ## Phạm vi và mô hình phiên
 
@@ -26,11 +26,13 @@ Logout revoke phiên hiện tại và clear cookie; 204 kể cả đã hết phi
 
 ## Google Login và Google-only Account
 
-Google OAuth authorization code qua backend; xác minh state, issuer, audience, expiry và email_verified. Lưu google_subject UNIQUE. Subject đã có → đăng nhập đúng user nếu ACTIVE, giữ nguyên capabilities; subject mới/email chưa có → tạo CUSTOMER với password_hash=NULL.
+Google OAuth authorization code qua backend với scopes `openid email profile`; backend trao đổi code và dùng `google-auth-library` xác minh signature, issuer, audience, expiry, `sub`, email normalized và `email_verified=true`. State là CSPRNG, ký, HttpOnly, SameSite=Lax, hạn 10 phút và single-use trong backend process; callback luôn clear state cookie. Không đưa code, ID/access/refresh token hoặc client secret về frontend/log/query redirect.
+
+Lưu `google_subject` UNIQUE. Subject đã có → đăng nhập đúng User ACTIVE, không ghi đè profile/capabilities. Subject mới/email chưa có → tạo CUSTOMER ACTIVE với `password_hash=NULL`; dùng `name` đã xác minh nếu trim 1–150 ký tự, còn thiếu/không hợp lệ thì dùng local-part đã normalize của email verified (cắt tối đa 150 ký tự) rồi tạo AuthSession hiện hữu. Không tạo OWNER/ADMIN qua Google.
 
 Google-only account tiếp tục dùng Google Login trong MVP: không phát token tạo mật khẩu cục bộ qua Forgot Password, không dùng Reset/Change Password để thêm mật khẩu. Change Password trả 409 PASSWORD_NOT_CONFIGURED và UI hướng dẫn Google Login. Forgot Password vẫn trả 202 cùng thông báo chung như mọi email hợp lệ, không tiết lộ đó là tài khoản Google.
 
-Email Google trùng tài khoản cục bộ nhưng subject chưa liên kết → không tự gộp, trả mã GOOGLE_LOGIN_UNAVAILABLE qua redirect an toàn và hướng dẫn dùng phương thức đăng nhập đã có. Không xây account-linking, màn hình liên kết hoặc API liên kết trong MVP; đây không còn là TODO chặn đăng nhập Google-only. Không lưu Google access/refresh token khi không cần ngoài đăng nhập.
+Email Google trùng bất kỳ User khác nhưng subject chưa liên kết → không tự gộp, redirect an toàn về `/login?google=account_exists` và hướng dẫn dùng phương thức đăng nhập đã có. Callback chỉ dùng mã allow-list `success`, `google_cancelled`, `google_failed`, `account_exists`, `account_inactive`; không có redirect tùy ý hoặc lỗi Google thô. Không xây account-linking, màn hình liên kết hoặc API liên kết trong MVP. Không lưu Google access/refresh token khi không cần ngoài đăng nhập.
 
 ## Forgot Password — reset qua email
 

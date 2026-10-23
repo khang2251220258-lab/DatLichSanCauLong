@@ -3,12 +3,42 @@ import argon2 from 'argon2';
 import { authConfig } from './config.js';
 import { AuthError } from './errors.js';
 import { passwordOptions } from './password.js';
+import { normalizeEmail } from './validation.js';
 export const tokenHash = token => createHash('sha256').update(token).digest();
 const dummyHash = argon2.hash(randomBytes(32), passwordOptions);
 const denied = () => new AuthError(401, 'INVALID_CREDENTIALS', 'Email hoặc mật khẩu không đúng.');
 const publicUser = user => ({ id: String(user.id), email: user.email, full_name: user.full_name, phone: user.phone, avatar_path: user.avatar_path, role: user.role,
   capabilities: user.role === 'ADMIN' ? ['ADMIN'] : user.ownerProfile ? ['CUSTOMER', 'OWNER'] : ['CUSTOMER'], has_local_password: user.password_hash !== null });
 async function now(db) { return (await db.$queryRaw`SELECT clock_timestamp() AS now`)[0].now; }
+function googleFullName(name, email) {
+  const candidate = typeof name === 'string' ? name.trim() : '';
+  if (candidate && [...candidate].length <= 150) return candidate;
+  const fallback = email.split('@', 1)[0].trim();
+  const normalized = [...fallback].slice(0, 150).join('').trim();
+  if (!normalized) throw new AuthError(401, 'GOOGLE_IDENTITY_INVALID', 'Không thể xác minh tài khoản Google.');
+  return normalized;
+}
+async function createSession(tx, user, query = (_operation, run) => run()) {
+  const created_at = await query('session_clock', () => now(tx));
+  const token = randomBytes(32).toString('base64url');
+  const csrf_token = randomBytes(32).toString('hex');
+  const expires_at = new Date(created_at.getTime() + authConfig.lifetimeMs);
+  await query('session_insert', () => tx.authSession.create({ data: { user_id: user.id, token_hash: tokenHash(token), csrf_token, created_at, expires_at } }));
+  return { user: publicUser(user), csrf_token, token, expires_at };
+}
+const prismaExceptionTypes = new Set(['PrismaClientKnownRequestError', 'PrismaClientUnknownRequestError', 'PrismaClientInitializationError', 'PrismaClientRustPanicError', 'Error', 'UnknownError']);
+const safePrismaDiagnostic = error => {
+  const exception_type = prismaExceptionTypes.has(error?.name) ? error.name : 'UnknownError';
+  const prisma_error = typeof error?.code === 'string' && /^P\d{4}$/.test(error.code) ? error.code : undefined;
+  return Object.freeze({ exception_type, ...(prisma_error ? { prisma_error } : {}) });
+};
+const googleDiagnosticFailure = (code, diagnostic) => {
+  const error = new Error(code);
+  error.name = 'GoogleCallbackDiagnosticError';
+  error.code = code;
+  error.diagnostic = diagnostic;
+  return error;
+};
 export function createAuthService(db, emailAdapter) {
   return {
     assertEmailConfigured() { emailAdapter.assertConfigured(); },
@@ -79,13 +109,52 @@ export function createAuthService(db, emailAdapter) {
         const current = await tx.user.findUnique({ where: { id: user.id }, include: { ownerProfile: true } });
         if (!current || current.password_hash !== user.password_hash) throw denied();
         if (current.status !== 'ACTIVE') throw new AuthError(403, 'ACCOUNT_LOCKED', 'Tài khoản đã bị khóa.');
-        const created_at = await now(tx);
-        const token = randomBytes(32).toString('base64url');
-        const csrf_token = randomBytes(32).toString('hex');
-        const expires_at = new Date(created_at.getTime() + authConfig.lifetimeMs);
-        await tx.authSession.create({ data: { user_id: current.id, token_hash: tokenHash(token), csrf_token, created_at, expires_at } });
-        return { user: publicUser(current), csrf_token, token, expires_at };
+        return createSession(tx, current);
       });
+    },
+    async googleLogin(identity) {
+      const subject = typeof identity?.subject === 'string' ? identity.subject.trim() : '';
+      const email = typeof identity?.email === 'string' ? normalizeEmail(identity.email) : '';
+      if (!subject || [...subject].length > 255 || !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new AuthError(401, 'GOOGLE_IDENTITY_INVALID', 'Không thể xác minh tài khoản Google.');
+      const transactionStarted = performance.now();
+      let operation = 'transaction_open';
+      const googleStep = async (code, label, run) => {
+        operation = label;
+        const started = performance.now();
+        try { return await run(); }
+        catch (error) {
+          if (error instanceof AuthError) throw error;
+          throw googleDiagnosticFailure(code, { ...safePrismaDiagnostic(error), operation: label, operation_elapsed_ms: Math.round(performance.now() - started) });
+        }
+      };
+      try {
+        const result = await db.$transaction(async tx => {
+          const bySubject = await googleStep('GOOGLE_USER_RESOLUTION_FAILED', 'subject_lookup', () => tx.user.findUnique({ where: { google_subject: subject }, include: { ownerProfile: true } }));
+          if (bySubject) {
+            await googleStep('GOOGLE_USER_RESOLUTION_FAILED', 'user_lock', () => tx.$queryRaw`SELECT id FROM users WHERE id = ${bySubject.id} FOR UPDATE`);
+            const current = await googleStep('GOOGLE_USER_RESOLUTION_FAILED', 'locked_user_lookup', () => tx.user.findUnique({ where: { id: bySubject.id }, include: { ownerProfile: true } }));
+            if (!current || current.status !== 'ACTIVE') throw new AuthError(403, 'ACCOUNT_LOCKED', 'Tài khoản đã bị khóa.');
+            const session = await createSession(tx, current, (label, run) => googleStep('GOOGLE_SESSION_CREATION_FAILED', label, run));
+            operation = 'transaction_commit';
+            return session;
+          }
+          const byEmail = await googleStep('GOOGLE_USER_RESOLUTION_FAILED', 'email_lookup', () => tx.user.findUnique({ where: { email_normalized: email } }));
+          if (byEmail) throw new AuthError(409, 'GOOGLE_EMAIL_COLLISION', 'Email đã có tài khoản.');
+          const created_at = await googleStep('GOOGLE_USER_CREATION_FAILED', 'user_clock', () => now(tx));
+          const user = await googleStep('GOOGLE_USER_CREATION_FAILED', 'user_insert', () => tx.user.create({ data: { email, email_normalized: email, full_name: googleFullName(identity.name, email), password_hash: null, google_subject: subject, role: 'CUSTOMER', status: 'ACTIVE', created_at }, include: { ownerProfile: true } }));
+          const session = await createSession(tx, user, (label, run) => googleStep('GOOGLE_SESSION_CREATION_FAILED', label, run));
+          operation = 'transaction_commit';
+          return session;
+        // Cold session-pooler acquisition can exceed Prisma's 2-second default maxWait.
+        }, { maxWait: 20000, timeout: 20000 });
+        return result;
+      } catch (error) {
+        if (error instanceof AuthError) throw error;
+        const diagnostic = { ...safePrismaDiagnostic(error), ...error?.diagnostic, operation: error?.diagnostic?.operation || operation, transaction_elapsed_ms: Math.round(performance.now() - transactionStarted) };
+        if (error?.code === 'P2002') throw googleDiagnosticFailure('GOOGLE_USER_CREATION_FAILED', diagnostic);
+        if (typeof error?.code === 'string' && error.code.startsWith('GOOGLE_')) { error.diagnostic = diagnostic; throw error; }
+        throw googleDiagnosticFailure('GOOGLE_USER_TRANSACTION_FAILED', diagnostic);
+      }
     },
     async session(token) {
       if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;

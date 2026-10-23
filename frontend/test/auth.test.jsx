@@ -60,6 +60,19 @@ describe('Auth UI with mocked HTTP transport only', () => {
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
     expect(screen.getByTestId('auth').textContent).toBe('authenticated');
   });
+  it('Google Login uses a browser redirect endpoint and maps only safe callback notices', async () => {
+    mockFetch(() => guest()); mount('/login?google=account_exists');
+    const control = await screen.findByRole('link', { name: 'Tiếp tục với Google' });
+    expect(control.getAttribute('href')).toBe('http://localhost:3000/api/v1/auth/google');
+    expect(control.getAttribute('aria-disabled')).toBe('false');
+    await screen.findByText('Email này đã được đăng ký. Vui lòng đăng nhập bằng phương thức hiện có.');
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/login'));
+  });
+  it('successful Google callback reuses the authoritative session bootstrap', async () => {
+    mockFetch(() => response(200, session)); mount('/login?google=success');
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
+    expect(screen.getByTestId('auth').textContent).toBe('authenticated');
+  });
   it.each([503, 'network'])('bootstrap %s stays error, retry can become guest', async failure => {
     let failed = true;
     mockFetch(() => { if (failed) { if (failure === 'network') throw new TypeError('offline'); return response(503, null, 'SERVICE_UNAVAILABLE'); } return guest(); });

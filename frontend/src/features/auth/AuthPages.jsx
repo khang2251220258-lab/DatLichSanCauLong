@@ -7,6 +7,30 @@ import { passwordHint, validateFields } from './validation';
 import { authResponse } from '../../services/responseValidators';
 import { authorizedReturnPath } from './returnPath';
 
+const googleMessages = {
+  google_cancelled: 'Bạn đã hủy đăng nhập bằng Google.',
+  account_exists: 'Email này đã được đăng ký. Vui lòng đăng nhập bằng phương thức hiện có.',
+  account_inactive: 'Tài khoản đang bị khóa.',
+  google_failed: 'Không thể hoàn tất đăng nhập bằng Google. Vui lòng thử lại.',
+};
+
+function GoogleLogin() {
+  const [navigating, setNavigating] = useState(false);
+  const base = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '');
+  const href = base ? `${base}/auth/google` : undefined;
+  const begin = event => {
+    if (!href || navigating) { event.preventDefault(); return; }
+    setNavigating(true);
+  };
+  return <div className="google-login">
+    <div className="google-separator" aria-hidden="true"><span/>Hoặc<span/></div>
+    <a className="google-button" href={href} onClick={begin} aria-disabled={!href || navigating}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285f4" d="M21.35 12.23c0-.71-.06-1.4-.19-2.05H12v3.88h5.24a4.48 4.48 0 0 1-1.94 2.94v2.52h3.15c1.84-1.7 2.9-4.2 2.9-7.29Z"/><path fill="#34a853" d="M12 21.75c2.62 0 4.82-.87 6.43-2.36l-3.15-2.52c-.87.59-1.99.94-3.28.94-2.52 0-4.66-1.7-5.42-3.99H3.34v2.6A9.72 9.72 0 0 0 12 21.75Z"/><path fill="#fbbc05" d="M6.58 13.82A5.86 5.86 0 0 1 6.28 12c0-.63.11-1.24.3-1.82v-2.6H3.34A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.06 1.09 4.42l3.24-2.6Z"/><path fill="#ea4335" d="M12 6.19c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.81 3.26 14.62 2.25 12 2.25a9.72 9.72 0 0 0-8.66 5.33l3.24 2.6C7.34 7.89 9.48 6.19 12 6.19Z"/></svg>
+      {navigating ? 'Đang chuyển đến Google…' : 'Tiếp tục với Google'}
+    </a>
+  </div>;
+}
+
 function useForm(mode, action) {
   const [values, setValues] = useState({ email: '', password: '', full_name: '', confirm: '' });
   const [errors, setErrors] = useState({});
@@ -50,9 +74,10 @@ export function LoginPage() {
   const [requestedDestination] = useState(location.state?.from);
   const [registered] = useState(location.state?.registered === true);
   const [passwordNotice] = useState(location.state?.passwordChanged ? 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.' : location.state?.passwordChangeUnknown ? 'Không thể xác minh kết quả đổi mật khẩu. Hãy thử đăng nhập lại bằng mật khẩu mới.' : '');
+  const [googleNotice] = useState(() => googleMessages[new URLSearchParams(location.search).get('google')] || '');
   useEffect(() => {
-    if (location.state?.registered || location.state?.passwordChanged || location.state?.passwordChangeUnknown) navigate('/login', { replace: true, state: null });
-  }, [location.state, navigate]);
+    if (location.state?.registered || location.state?.passwordChanged || location.state?.passwordChangeUnknown || location.search) navigate('/login', { replace: true, state: null });
+  }, [location.state, location.search, navigate]);
   const form = useForm('login', async (values, signal) => {
     await api('/auth/login', { method: 'POST', body: { email: values.email.trim().toLowerCase(), password: values.password }, signal, validate:authResponse });
     if (signal.aborted) return;
@@ -72,6 +97,8 @@ export function LoginPage() {
       <div className="forgot-link"><Link to="/forgot-password">Quên mật khẩu?</Link></div>
       <Notice>{form.error}</Notice><Submit pending={form.pending}>Đăng nhập</Submit>
     </form>
+    <Notice>{googleNotice}</Notice>
+    <GoogleLogin />
     <p className="auth-footer">Chưa có tài khoản? <Link to="/register" state={requestedDestination?{from:requestedDestination}:null}>Đăng ký ngay</Link></p>
   </AuthLayout>;
 }

@@ -38,6 +38,9 @@ function transport(overrides = {}) {
 }
 function mount() { return render(<MemoryRouter initialEntries={['/owner/facilities/30/cancellation-policy']}><AuthProvider><AppRoutes/></AuthProvider></MemoryRouter>); }
 const putCalls = calls => calls.filter(call => call.options.method === 'PUT');
+// The labeled input exists before policy hydration commits its persisted value.
+// Wait for that value so a pending hydration effect cannot overwrite a test edit.
+const waitForPolicyHydration = value => screen.findByDisplayValue(String(value));
 
 it('renders the approved Facility context, current sidebar, breadcrumb and active six-card hub', async () => {
   transport(); mount();
@@ -80,8 +83,8 @@ it('renders null as explicitly unconfigured, blank, without default or automatic
   await waitFor(() => expect(putCalls(calls)).toHaveLength(1)); expect(JSON.parse(putCalls(calls)[0].options.body)).toEqual({ cutoff_hours: 12 });
 });
 
-it.each(['0','168'])('accepts boundary cutoff %s', async value => {
-  const calls = transport({ policy: null }); mount(); const input = await screen.findByLabelText('Cho phép hủy trước giờ chơi');
+it.each(['0','1','168'])('accepts boundary cutoff %s', async value => {
+  const calls = transport(); mount(); const input = await waitForPolicyHydration(24);
   fireEvent.change(input, { target: { value } }); fireEvent.click(screen.getByRole('button', { name: 'Lưu chính sách' }));
   await waitFor(() => expect(putCalls(calls)).toHaveLength(1)); expect(JSON.parse(putCalls(calls)[0].options.body).cutoff_hours).toBe(Number(value));
 });

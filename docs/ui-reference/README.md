@@ -197,8 +197,8 @@ Lưu ý cho implementation sau:
 
 - PNG quyết định visual; backend/spec quyết định behavior và validation. Không tự redesign.
 - Password phải theo `docs/specs/AUTH_SPEC.md` và backend hiện tại, không theo placeholder “Ít nhất 6 ký tự” trong PNG.
-- Google Login xuất hiện trong reference nhưng backend chưa hỗ trợ; không được coi là feature đã sẵn sàng.
-- Auth F1 đã chốt: Register chỉ full_name/email/password, bỏ phone; Google ẩn ở Login/Register. Không auto-login sau Register; về /login kèm thông báo. Login thành công về /.
+- Google Login trên `/login` dùng OAuth redirect do backend xử lý; PNG là visual baseline, còn separator/button dùng cùng hệ thống Auth hiện có. Không đưa token/code Google vào frontend. Register vẫn chỉ full_name/email/password; không tạo Google registration flow riêng.
+- Auth F1 giữ Register chỉ full_name/email/password và bỏ phone. Không auto-login sau Register; về /login kèm thông báo. Login local hoặc Google thành công dùng session backend rồi điều hướng theo capability authoritative.
 - Forgot Sent dùng thông báo có điều kiện theo backend, không khẳng định delivery hoặc phản ánh tồn tại tài khoản. Reset confirm password chỉ validation frontend. Hai màn hình success là state, không route riêng.
 - Font system-ui; branding icon + “Cầu Lông ĐN” gần PNG, không cần asset mới. Responsive hợp lý; loading/error inline, không alert và chống submit lặp.
 

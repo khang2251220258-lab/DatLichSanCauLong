@@ -253,7 +253,7 @@ Kiểm chứng: backend unit **57/57 PASS**, frontend **212/212 PASS**, Presenta
 
 | Nhóm | Phạm vi | Trạng thái | Ghi chú |
 | --- | --- | --- | --- |
-| Auth | Email/password, session, forgot/reset/change; frontend login/register/forgot/reset | IMPLEMENTED | Google Login và frontend Change Password còn DEFERRED |
+| Auth | Email/password, Google OAuth, session, forgot/reset/change; frontend login/register/forgot/reset | IMPLEMENTED | Google-only dùng OAuth; account-linking và frontend Change Password còn DEFERRED |
 | Public Facility | Home, list, detail, q/district và gallery delivery | IMPLEMENTED | Filter giá/rating/amenity còn DEFERRED |
 | Availability | API và UI một Court/một ngày, sáu trạng thái slot | IMPLEMENTED | Multi-court/multi-day và realtime DEFERRED |
 | Customer Booking | Create/list/detail, hold 5 phút, lazy expiry và frontend | IMPLEMENTED | Cancel PENDING_PAYMENT backend DONE; CONFIRMED cancel/complete còn PARTIAL |
@@ -441,15 +441,15 @@ P1/P2/P3 theo PROJECT_OVERVIEW. Cập nhật 2026-09-19: ưu tiên cancellation 
 | auth | Đăng nhập session cookie | P1 | DONE | Hash password, CSRF/Origin |
 | auth | Đăng xuất và thu hồi phiên | P1 | DONE | Session server, chưa JWT |
 | auth | Customer capabilities + Owner capabilities, Admin riêng | P1 | DONE | Session suy ra OwnerProfile, guard Owner Request đã test; ownership module nghiệp vụ khác vẫn TODO |
-| auth | Google-only không thêm mật khẩu cục bộ | P2 | TODO | Không reset/change để tạo password hoặc account-linking |
+| auth | Google-only không thêm mật khẩu cục bộ | P2 | DONE | Local login/reset/change không tạo password; account-linking ngoài MVP |
 | ui | Auth F1 routing/API/session/guards | P1 | DONE | React Router/fetch/Context; 20 test, lint/build PASS 2026-10-02 |
-| ui | Login/Register frontend | P1 | DONE | Approved PNG; không phone/Google/auto-login Register |
+| ui | Login/Register frontend | P1 | DONE | Login có Google OAuth; Register không phone/Google/auto-login |
 | ui | Forgot/Reset Password frontend | P1 | DONE | Generic202, fragment token trong memory; success cùng route |
 | ui | Change Password frontend | P1 | TODO | Owner Request frontend đã hoàn thành |
 | auth | Quên mật khẩu và gửi email Resend | P1 | DONE | Resend ACCEPTED; người dùng xác nhận email development đã tới ngày 2026-09-24; token lộ đã invalidated |
 | auth | Reset Password | P1 | DONE | Integration DB: token hợp lệ/sai/hết hạn/used/invalidated, revoke phiên và đổi password PASS |
 | auth | Đổi mật khẩu | P1 | DONE | Integration DB: đúng/sai mật khẩu, policy, session, Google-only, revoke phiên/token PASS |
-| auth | Google Login | P2 | TODO | Google-only tiếp tục Google Login; không account-linking MVP |
+| auth | Google Login | P2 | DONE | OAuth authorization-code backend; verified subject, fail-closed email collision, existing AuthSession; không account-linking |
 | users | Hồ sơ họ tên/email/SĐT/avatar | P1 | TODO | Ưu tiên đề xuất; đổi email chưa chốt |
 | users | Yêu cầu trở thành Owner | P1 | DONE | Hồ sơ tài khoản hiện có; REJECTED giữ lịch sử, tạo request mới |
 | admin | Duyệt/từ chối Owner request | P1 | DONE | Ưu tiên đề xuất; từ chối có lý do |

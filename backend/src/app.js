@@ -31,6 +31,7 @@ import { prisma } from './config/prisma.js';
 import { createAuthService } from './modules/auth/service.js';
 import { authRoutes, apiError } from './modules/auth/routes.js';
 import { createResetEmail } from './modules/auth/email.js';
+import { createGoogleOAuth } from './modules/auth/google.js';
 import { createOwnerRequestService } from './modules/users/owner-requests/service.js';
 import { ownerRequestRoutes } from './modules/users/owner-requests/routes.js';
 import { createProfileService } from './modules/users/profile/service.js';
@@ -47,7 +48,7 @@ export function createApp(db = prisma, config = env, limits, emailAdapter = crea
   app.use('/api/v1/courts', availabilityRoutes(createAvailabilityService(db)));
   app.use('/api/v1/facilities', publicFacilityRoutes(createPublicFacilityService(db, imageStorage), createRecurringSearchService(db, imageStorage)));
   const authService = createAuthService(db, emailAdapter);
-  const auth = authRoutes(authService, config, limits);
+  const auth = authRoutes(authService, config, limits, createGoogleOAuth(config));
   app.locals.passwordTasks = auth.passwordTasks;
   app.use('/api/v1/auth', auth);
   const series = createBookingSeriesService(db, proofStorage);

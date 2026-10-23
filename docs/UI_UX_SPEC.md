@@ -522,7 +522,7 @@ Theo specs/AVAILABILITY_SPEC.md: chỉ đọc hôm nay/tương lai, ngày quá k
 
 Sáu ảnh docs/ui-reference/auth-*.png là visual chuẩn cho Auth F1, thay TODO bàn giao Figma riêng cho bốn route Auth này. Font system-ui, branding dựng icon + “Cầu Lông ĐN” theo quyết định người dùng. Không áp quyết định này cho các màn hình nghiệp vụ khác.
 
-Đã triển khai /login, /register, /forgot-password và /reset-password. Ngoại lệ PNG đã duyệt: ẩn Google, bỏ phone và chỉ dùng field backend ở Register, policy8–128 có chữ/số, Forgot Sent dùng thông báo có điều kiện không xác nhận delivery. Forgot Sent/Reset Success là state cùng route. Loading/error inline và chống submit lặp. Login thành công về /; Register không auto-login, về Login kèm thông báo; Reset success có nút Login. Không frontend Change Password/Home/Public/Availability/Booking. Chi tiết kiểm chứng tại FEATURE_STATUS.
+Đã triển khai /login, /register, /forgot-password và /reset-password. Login hiển thị thêm separator “Hoặc” và nút “Tiếp tục với Google”; đây là browser redirect tới backend OAuth, không dùng SDK/token Google trong frontend. Register vẫn bỏ phone và không tạo Google registration flow riêng. Password policy8–128 có chữ/số, Forgot Sent dùng thông báo có điều kiện không xác nhận delivery. Forgot Sent/Reset Success là state cùng route. Loading/error inline và chống submit lặp. Login local hoặc Google thành công dùng session authoritative; Register không auto-login, về Login kèm thông báo; Reset success có nút Login. Chi tiết kiểm chứng tại FEATURE_STATUS.
 
 ## Frontend read reliability baseline — 2026-10-11
 

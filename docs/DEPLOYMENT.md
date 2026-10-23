@@ -26,6 +26,12 @@ Never commit real values. Store backend variables in the server platform and `VI
 | `CLOUDINARY_API_SECRET` | Cloudinary credential, server-side only. |
 | `RESEND_API_KEY` | Required when Forgot Password email is enabled. |
 | `EMAIL_FROM` | Verified production sender address. `resend.dev` is rejected in production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google web OAuth client ID; server-side configuration. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Google web OAuth client secret; server-side only. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Exact registered HTTPS backend callback URL. |
+| `GOOGLE_OAUTH_STATE_SECRET` | Server-only random secret, at least 32 characters, used to sign short-lived OAuth state. |
+
+For local development, register `http://localhost:3000/api/v1/auth/google/callback` as the exact Google redirect URI. Production requires the exact HTTPS backend callback URI; the browser uses the backend authorization-code flow and does not need a frontend Google SDK secret.
 
 `PORT` is optional and defaults to `3000`; use the port supplied by the hosting platform. `DIRECT_URL` is optional and is used only by Prisma CLI when the runtime URL is unsuitable for migration commands.
 
