@@ -7,7 +7,7 @@ import { AuthProvider } from '../src/features/auth/AuthContext';
 const now='2026-10-06T01:00:00.000Z';
 const user={id:'10',full_name:'Owner Fixture',capabilities:['CUSTOMER','OWNER']};
 const proof={id:'13',status:'SUBMITTED',submitted_at:now,reviewed_at:null,rejection_reason:null};
-const booking={id:'112',status:'PENDING_CONFIRMATION',booking_flow_version:1,transfer_reference:null,confirmation_expires_at:null,confirmed_by_user_id:null,start_at:'2026-10-07T02:00:00.000Z',end_at:'2026-10-07T03:00:00.000Z',created_at:now,total_amount:'120000',deposit_amount:'36000',remaining_amount:'84000',confirmed_at:null,rejected_at:null,rejection_reason:null,cancelled_at:null,cancelled_by:null,cancellation_reason:null,customer:{id:'20',full_name:'Customer Fixture',phone:'0900000000'},facility:{id:'30',name:'Facility Fixture'},court:{id:'40',name:'Sân 1'},payment_proof:proof,refund:null,slots:[{start_at:'2026-10-07T02:00:00.000Z',end_at:'2026-10-07T02:30:00.000Z',hourly_rate_snapshot:'120000',slot_amount:'60000'},{start_at:'2026-10-07T02:30:00.000Z',end_at:'2026-10-07T03:00:00.000Z',hourly_rate_snapshot:'120000',slot_amount:'60000'}]};
+const booking={id:'112',status:'PENDING_CONFIRMATION',booking_flow_version:1,transfer_reference:null,confirmation_expires_at:null,confirmed_by_user_id:null,start_at:'2026-10-07T02:00:00.000Z',end_at:'2026-10-07T03:00:00.000Z',created_at:now,total_amount:'120000',deposit_amount:'36000',remaining_amount:'84000',confirmed_at:null,completed_at:null,rejected_at:null,rejection_reason:null,cancelled_at:null,cancelled_by:null,cancellation_reason:null,customer:{id:'20',full_name:'Customer Fixture',phone:'0900000000'},facility:{id:'30',name:'Facility Fixture'},court:{id:'40',name:'Sân 1'},payment_proof:proof,refund:null,slots:[{start_at:'2026-10-07T02:00:00.000Z',end_at:'2026-10-07T02:30:00.000Z',hourly_rate_snapshot:'120000',slot_amount:'60000'},{start_at:'2026-10-07T02:30:00.000Z',end_at:'2026-10-07T03:00:00.000Z',hourly_rate_snapshot:'120000',slot_amount:'60000'}]};
 const ok=(data,meta={},status=200)=>new Response(JSON.stringify({data,meta:{server_time:now,...meta}}),{status});
 const fail=(status,code)=>new Response(JSON.stringify({error:{code}}),{status});
 function transport(overrides={}){const calls=[];vi.stubGlobal('fetch',vi.fn(async(url,options)=>{const u=new URL(url);calls.push({u,options});
@@ -15,6 +15,7 @@ function transport(overrides={}){const calls=[];vi.stubGlobal('fetch',vi.fn(asyn
   if(u.pathname==='/api/v1/owner/bookings'&&options.method==='GET')return overrides.list?.()||ok([booking],{page:1,page_size:20,total:1});
   if(u.pathname==='/api/v1/owner/bookings/112')return overrides.detail?.()||ok(booking);
   if(u.pathname==='/api/v1/owner/bookings/112/cancel'&&options.method==='POST')return overrides.cancel?.(options)||ok({booking:{id:'112',status:'CANCELLED',cancelled_by:'OWNER',cancellation_reason:'Bảo trì sân',cancelled_at:now},refund:{id:'71',booking_id:'112',amount:'36000',status:'PENDING',requested_at:now}});
+  if(u.pathname==='/api/v1/owner/bookings/112/complete'&&options.method==='POST')return overrides.complete?.(options)||ok({booking:{id:'112',status:'COMPLETED',completed_at:now}});
   if(u.pathname==='/api/v1/owner/payments/13'&&options.method==='GET')return overrides.proof?.()||ok({...proof,proof_image_url:'https://private.invalid/proof',proof_image_expires_at:new Date(Date.now()+300000).toISOString(),booking:{id:booking.id,status:booking.status,start_at:booking.start_at,end_at:booking.end_at,total_amount:booking.total_amount,deposit_amount:booking.deposit_amount,remaining_amount:booking.remaining_amount},customer:booking.customer,facility:booking.facility,court:booking.court});
   if(u.pathname.endsWith('/confirm'))return overrides.confirm?.()||ok({proof:{...proof,status:'APPROVED'},booking:{id:'112',status:'CONFIRMED'}});
   if(u.pathname.endsWith('/reject'))return overrides.reject?.(options)||ok({proof:{...proof,status:'REJECTED'},booking:{id:'112',status:'REJECTED'}});
@@ -54,7 +55,7 @@ it.each([
   ['REJECTED','REJECTED','Minh chứng đã bị từ chối'],
   ['EXPIRED',null,'Booking đã hết hạn'],
   ['CANCELLED','APPROVED','Booking đã bị hủy'],
-])('renders operational hierarchy for %s without invalid actions',async(status,proofStatus,guidance)=>{transport({detail:()=>ok({...booking,status,payment_proof:proofStatus?{...proof,status:proofStatus,reviewed_at:proofStatus==='SUBMITTED'?null:now,rejection_reason:proofStatus==='REJECTED'?'Không khớp':null}:null,confirmed_at:status==='CONFIRMED'||status==='COMPLETED'?now:null,rejected_at:status==='REJECTED'?now:null,rejection_reason:status==='REJECTED'?'Không khớp':null,cancelled_at:status==='CANCELLED'?now:null,cancelled_by:status==='CANCELLED'?'CUSTOMER':null,cancellation_reason:status==='CANCELLED'?'Đổi kế hoạch':null,refund:null})});mount('/owner/bookings/112');expect(await screen.findByRole('heading',{name:'Chi tiết đặt sân'})).toBeTruthy();expect(screen.getByText(guidance)).toBeTruthy();expect(screen.getByRole('heading',{name:'Thông tin khách đặt sân'})).toBeTruthy();expect(screen.getByRole('heading',{name:'Thông tin đặt sân'})).toBeTruthy();expect(screen.getByRole('heading',{name:'Tổng quan thanh toán'})).toBeTruthy();if(status!=='PENDING_CONFIRMATION'){expect(screen.queryByText('Xác nhận đã nhận tiền')).toBeNull();expect(screen.queryByText('Từ chối minh chứng')).toBeNull();}if(status!=='CONFIRMED')expect(screen.queryByRole('button',{name:'Hủy đặt sân'})).toBeNull();});
+])('renders operational hierarchy for %s without invalid actions',async(status,proofStatus,guidance)=>{transport({detail:()=>ok({...booking,status,payment_proof:proofStatus?{...proof,status:proofStatus,reviewed_at:proofStatus==='SUBMITTED'?null:now,rejection_reason:proofStatus==='REJECTED'?'Không khớp':null}:null,confirmed_at:status==='CONFIRMED'||status==='COMPLETED'?now:null,completed_at:status==='COMPLETED'?now:null,rejected_at:status==='REJECTED'?now:null,rejection_reason:status==='REJECTED'?'Không khớp':null,cancelled_at:status==='CANCELLED'?now:null,cancelled_by:status==='CANCELLED'?'CUSTOMER':null,cancellation_reason:status==='CANCELLED'?'Đổi kế hoạch':null,refund:null})});mount('/owner/bookings/112');expect(await screen.findByRole('heading',{name:'Chi tiết đặt sân'})).toBeTruthy();expect(screen.getByText(guidance)).toBeTruthy();expect(screen.getByRole('heading',{name:'Thông tin khách đặt sân'})).toBeTruthy();expect(screen.getByRole('heading',{name:'Thông tin đặt sân'})).toBeTruthy();expect(screen.getByRole('heading',{name:'Tổng quan thanh toán'})).toBeTruthy();if(status==='COMPLETED')expect(screen.getByText('Hoàn tất lúc')).toBeTruthy();if(status!=='PENDING_CONFIRMATION'){expect(screen.queryByText('Xác nhận đã nhận tiền')).toBeNull();expect(screen.queryByText('Từ chối minh chứng')).toBeNull();}if(status!=='CONFIRMED')expect(screen.queryByRole('button',{name:'Hủy đặt sân'})).toBeNull();});
 it('Owner detail and private proof responses fail closed on extra fields or mismatched resources',async()=>{
   transport({detail:()=>ok({...booking,image_path:'private-id'})});mount('/owner/bookings/112');expect(await screen.findByRole('alert')).toBeTruthy();expect(document.body.textContent).not.toContain('private-id');
 });
@@ -121,4 +122,24 @@ it('V2 detail actions reject with trimmed reason and do not load PaymentProof',a
   fireEvent.click(screen.getByRole('button',{name:'Từ chối'}));
   await waitFor(()=>expect(calls.filter(call=>call.u.pathname.endsWith('/owner/bookings/112/reject'))).toHaveLength(1));
   expect(JSON.parse(calls.find(call=>call.u.pathname.endsWith('/owner/bookings/112/reject')).options.body)).toEqual({reason:'Không thấy giao dịch'});
+});
+
+it('ended CONFIRMED booking completes once through confirmation and authoritative refetch',async()=>{
+  let completed=false,reads=0;
+  const ended={...booking,status:'CONFIRMED',start_at:'2026-10-05T23:00:00.000Z',end_at:'2026-10-06T00:00:00.000Z',confirmed_at:now,payment_proof:{...proof,status:'APPROVED',reviewed_at:now}};
+  const calls=transport({detail:()=>{reads+=1;return ok(completed?{...ended,status:'COMPLETED',completed_at:now}:ended)},complete:options=>{completed=true;expect(JSON.parse(options.body)).toEqual({});return ok({booking:{id:'112',status:'COMPLETED',completed_at:now}})}});
+  mount('/owner/bookings/112');const trigger=await screen.findByRole('button',{name:'Đánh dấu hoàn tất'});fireEvent.click(trigger);
+  expect(screen.getByRole('dialog',{name:'Hoàn tất đặt sân'})).toBeTruthy();expect(calls.filter(call=>call.u.pathname.endsWith('/complete'))).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button',{name:'Xác nhận hoàn tất'}));await screen.findByText('Hoàn tất lúc');
+  expect(reads).toBeGreaterThan(1);expect(calls.filter(call=>call.u.pathname.endsWith('/complete'))).toHaveLength(1);expect(screen.queryByRole('button',{name:'Đánh dấu hoàn tất'})).toBeNull();
+});
+
+it('completion is hidden before end and 409 refetches without retry',async()=>{
+  const calls=transport({detail:()=>ok({...booking,status:'CONFIRMED',confirmed_at:now,payment_proof:{...proof,status:'APPROVED',reviewed_at:now}})});
+  mount('/owner/bookings/112');await screen.findByText('Booking #112');expect(screen.queryByRole('button',{name:'Đánh dấu hoàn tất'})).toBeNull();expect(calls.some(call=>call.u.pathname.endsWith('/complete'))).toBe(false);
+});
+
+it.each([[409,'INVALID_BOOKING_STATE'],[503,'SERVICE_UNAVAILABLE']])('completion %s recovers from authoritative detail without duplicate mutation',async(status,code)=>{
+  let reads=0;const ended={...booking,status:'CONFIRMED',start_at:'2026-10-05T23:00:00.000Z',end_at:'2026-10-06T00:00:00.000Z',confirmed_at:now,payment_proof:{...proof,status:'APPROVED',reviewed_at:now}};
+  const calls=transport({detail:()=>{reads+=1;return ok(ended)},complete:()=>fail(status,code)});mount('/owner/bookings/112');fireEvent.click(await screen.findByRole('button',{name:'Đánh dấu hoàn tất'}));fireEvent.click(screen.getByRole('button',{name:'Xác nhận hoàn tất'}));await screen.findByRole('alert');expect(reads).toBeGreaterThan(1);expect(calls.filter(call=>call.u.pathname.endsWith('/complete'))).toHaveLength(1);
 });

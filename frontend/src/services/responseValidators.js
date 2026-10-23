@@ -112,6 +112,7 @@ export const bookingDetailResponse = envelope => detailResponse(envelope)
     ? (!Object.hasOwn(envelope.data, 'transfer_reference') || envelope.data.transfer_reference === null)
     : envelope.data.transfer_reference === `CLDN ${envelope.data.id}`)
   && (envelope.data.confirmed_by_user_id === null || positiveId(envelope.data.confirmed_by_user_id))
+  && (!Object.hasOwn(envelope.data, 'completed_at') || nullableInstant(envelope.data.completed_at))
   && ['total_amount','deposit_amount','remaining_amount'].every(key => money(envelope.data[key]))
   && ['bank_name_snapshot','account_number_snapshot','account_holder_snapshot'].every(key => typeof envelope.data[key] === 'string' && envelope.data[key].length > 0)
   && (envelope.data.qr_image_url === null || url(envelope.data.qr_image_url))
@@ -207,7 +208,7 @@ export const adminAmenityListResponse = envelope => object(envelope) && Array.is
 export const adminAmenityResponse = envelope => object(envelope) && amenity(envelope.data)
   && object(envelope.meta) && instant(envelope.meta.server_time);
 export const bookingCreateResponse = bookingDetailResponse;
-const ownerBookingDetailFields = new Set(['id','status','booking_flow_version','transfer_reference','start_at','end_at','total_amount','deposit_amount','created_at','customer','facility','court','payment_proof','refund','remaining_amount','confirmation_expires_at','confirmed_at','confirmed_by_user_id','rejected_at','rejection_reason','cancelled_at','cancelled_by','cancellation_reason','slots']);
+const ownerBookingDetailFields = new Set(['id','status','booking_flow_version','transfer_reference','start_at','end_at','total_amount','deposit_amount','created_at','customer','facility','court','payment_proof','refund','remaining_amount','confirmation_expires_at','confirmed_at','confirmed_by_user_id','completed_at','rejected_at','rejection_reason','cancelled_at','cancelled_by','cancellation_reason','slots']);
 const ownerBookingParty = (value, withPhone = false) => exactFields(value, new Set(withPhone ? ['id','full_name','phone'] : ['id','name']))
   && /^[1-9]\d*$/.test(String(value.id))
   && typeof (withPhone ? value.full_name : value.name) === 'string'
@@ -238,12 +239,17 @@ export const ownerBookingDetailResponse = envelope => object(envelope) && object
   && ['total_amount','deposit_amount','remaining_amount'].every(key => money(envelope.data[key]))
   && ownerBookingParty(envelope.data.customer, true) && ownerBookingParty(envelope.data.facility) && ownerBookingParty(envelope.data.court)
   && ownerPaymentProofSummary(envelope.data.payment_proof)
-  && ['confirmed_at','rejected_at','cancelled_at'].every(key => nullableInstant(envelope.data[key]))
+  && ['confirmed_at','completed_at','rejected_at','cancelled_at'].every(key => nullableInstant(envelope.data[key]))
   && ['rejection_reason','cancellation_reason'].every(key => envelope.data[key] === null || typeof envelope.data[key] === 'string')
   && (envelope.data.cancelled_by === null || ['CUSTOMER','OWNER'].includes(envelope.data.cancelled_by))
   && Array.isArray(envelope.data.slots) && envelope.data.slots.every(ownerSlot)
   && (envelope.data.refund === null || (refundSummary(envelope.data.refund) && envelope.data.refund.booking_id === String(envelope.data.id)));
 const ownerV2ActionBookingFields = new Set(['id','status','confirmed_at','confirmed_by_user_id','rejected_at','rejection_reason']);
+const ownerCompletionBookingFields = new Set(['id','status','completed_at']);
+export const ownerBookingCompletionResponse = expectedId => envelope => object(envelope) && object(envelope.meta) && instant(envelope.meta.server_time)
+  && exactFields(envelope.data, new Set(['booking'])) && exactFields(envelope.data.booking, ownerCompletionBookingFields)
+  && String(envelope.data.booking.id) === String(expectedId) && envelope.data.booking.status === 'COMPLETED'
+  && instant(envelope.data.booking.completed_at);
 export const ownerV2BookingActionResponse = expectedId => envelope => object(envelope) && object(envelope.meta) && instant(envelope.meta.server_time)
   && exactFields(envelope.data, new Set(['booking'])) && exactFields(envelope.data.booking, ownerV2ActionBookingFields)
   && String(envelope.data.booking.id) === String(expectedId)

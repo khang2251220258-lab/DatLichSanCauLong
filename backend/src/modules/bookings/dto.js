@@ -5,7 +5,7 @@ export const summaryFields = Object.fromEntries([
   'total_amount', 'deposit_amount', 'remaining_amount', 'facility_name_snapshot', 'facility_address_snapshot', 'court_name_snapshot',
 ].map(k => [k, true]));
 export const detailFields = { ...summaryFields, cancellation_cutoff_hours_snapshot: true,
-  confirmed_at: true, confirmed_by_user_id: true,
+  confirmed_at: true, confirmed_by_user_id: true, completed_at: true,
   cancelled_at: true, cancelled_by: true, cancellation_reason: true,
   bank_name_snapshot: true, account_number_snapshot: true, account_holder_snapshot: true,
   qr_image_path_snapshot: true,

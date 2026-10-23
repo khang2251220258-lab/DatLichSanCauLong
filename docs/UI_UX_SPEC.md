@@ -63,6 +63,10 @@ Navigation cấp cao chỉ có Quản lý cơ sở, Yêu cầu chủ sân và Ti
 
 Playwright Admin shell chỉ đọc, dùng credential từ environment. Screenshot sinh từ runtime là review candidate cho đến khi người dùng duyệt; không tự đăng ký thành reference CURRENT/APPROVED.
 
+## Owner Booking Completion — implemented 2026-10-23
+
+On `/owner/bookings/:booking_id`, an ended authoritative `CONFIRMED` booking shows **Hoàn tất đặt sân** only to the owning Owner. The shared AccessibleModal keeps the action explicit, records no client-managed state or financial values, and explains that the remaining 70% is handled directly at the facility. Success, 409, and uncertain results refetch the Detail; completed bookings are read-only and show `completed_at` in the Owner summary. Customer Detail retains its existing read-only `COMPLETED` presentation and renders the authoritative completion timestamp when it is supplied.
+
 ## Owner Booking Detail — redesigned 2026-10-13
 
 Route `/owner/bookings/:booking_id` dùng Owner Workspace Shell hiện hành và bố cục vận hành hai cột khoảng 68/32 trên desktop; tablet/mobile chuyển thành một cột mà không ép desktop composition. H1 chung là **Chi tiết đặt sân**. Main column ưu tiên Customer, Facility/Court/lịch/slot, PaymentProof actions, cancellation metadata và Refund; rail phụ tóm tắt tổng tiền/cọc/còn lại, trạng thái xử lý và thời điểm tạo.

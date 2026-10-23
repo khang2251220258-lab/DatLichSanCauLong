@@ -54,8 +54,8 @@ test('Payment PostgreSQL HTTP, expiry/concurrency, rollback and cleanup', {timeo
     const image=await proofInput({buffer:png,mimetype:'image/png'});
     let day=0;
     async function fresh(who=2) {
-      const d=new Date(+new Date(`${date}T00:00:00Z`)+(day++)*86400000).toISOString().slice(0,10);
-      const result=await create(body(9,0,d),who);assert.equal(result.status,201);return result.body.data;
+      const sequence=day++, d=new Date(+new Date(`${date}T00:00:00Z`)+(sequence%28)*86400000).toISOString().slice(0,10);
+      const result=await create(body(9+Math.floor(sequence/28)*3,0,d),who);assert.equal(result.status,201);return result.body.data;
     }
     async function proof(id,who=2,extra={}) {
       const form=new FormData();form.append('image',new Blob([png],{type:'image/png'}),'../../ignored.jpg');
@@ -128,6 +128,52 @@ test('Payment PostgreSQL HTTP, expiry/concurrency, rollback and cleanup', {timeo
       assert.equal(await prisma.bookingSlot.count({where:{booking_id:bid}}),2);
       assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}}),before);
       assert.equal((await req(`/owner/payments/${p.id}/confirm`,0,'POST',{})).status,409);
+    });
+    await cases('Owner completion enforces ownership, CSRF, ended CONFIRMED state and preserves history',async()=>{
+      const b=await fresh();await proof(b.id);const bid=BigInt(b.id),p=await prisma.paymentProof.findUnique({where:{booking_id:bid}});
+      assert.equal((await req(`/owner/payments/${p.id}/confirm`,0,'POST',{})).status,200);
+      assert.equal((await req(`/owner/bookings/${b.id}/complete`,2,'POST',{})).status,403);
+      assert.equal((await req(`/owner/bookings/${b.id}/complete`,1,'POST',{})).status,404);
+      assert.equal((await req(`/owner/bookings/${b.id}/complete`,0,'POST',{}, {Origin:'https://evil.invalid'})).status,403);
+      assert.equal((await req(`/owner/bookings/${b.id}/complete`,0,'POST',{}, {'X-CSRF-Token':''})).status,403);
+      assert.equal((await req(`/owner/bookings/${b.id}/complete`,0,'POST',{status:'COMPLETED'})).status,422);
+      const early=await req(`/owner/bookings/${b.id}/complete`,0,'POST',{});assert.equal(early.status,409);assert.equal(early.body.error.code,'BOOKING_NOT_ENDED');
+      const beforeSlots=await prisma.bookingSlot.count({where:{booking_id:bid}}),beforeLocks=await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}});
+      const beforeProof=await prisma.paymentProof.findUnique({where:{booking_id:bid}});
+      const endedAt=new Date(Math.floor(+clock/1800000)*1800000),startedAt=new Date(+endedAt-3600000);
+      await prisma.booking.update({where:{id:bid},data:{start_at:startedAt,end_at:endedAt}});
+      const response=await req(`/owner/bookings/${b.id}/complete`,0,'POST',{});assert.equal(response.status,200);
+      assert.deepEqual(Object.keys(response.body.data.booking).sort(),['completed_at','id','status']);assert.equal(response.body.data.booking.status,'COMPLETED');
+      const [booking,proofRow]=await Promise.all([prisma.booking.findUnique({where:{id:bid}}),prisma.paymentProof.findUnique({where:{booking_id:bid}})]);
+      assert.equal(booking.status,'COMPLETED');assert.equal(booking.completed_at.toISOString(),response.body.meta.server_time);
+      assert.equal(proofRow.status,'APPROVED');assert.equal(proofRow.image_path,beforeProof.image_path);
+      assert.equal(await prisma.bookingSlot.count({where:{booking_id:bid}}),beforeSlots);assert.ok(beforeLocks>0);assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}}),0);
+      const customer=await req(`/bookings/${b.id}`,2);assert.equal(customer.body.data.status,'COMPLETED');assert.equal(customer.body.data.completed_at,response.body.data.booking.completed_at);
+      assert.equal((await req(`/owner/bookings/${b.id}/complete`,0,'POST',{})).status,409);
+    });
+    await cases('Owner completion supports V2 and serializes competing terminal actions',async()=>{
+      const v2=await fresh(),v2id=BigInt(v2.id);
+      const v2EndedAt=new Date(Math.floor(+clock/1800000)*1800000),v2StartedAt=new Date(+v2EndedAt-3600000);
+      await prisma.booking.update({where:{id:v2id},data:{booking_flow_version:2,status:'CONFIRMED',confirmation_expires_at:new Date(+clock+3600000),confirmed_at:clock,confirmed_by_user_id:users[0].id,start_at:v2StartedAt,end_at:v2EndedAt}});
+      assert.equal((await req(`/owner/bookings/${v2.id}/complete`,0,'POST',{})).status,200);
+      assert.equal((await prisma.booking.findUnique({where:{id:v2id}})).status,'COMPLETED');
+
+      const raced=await fresh();await proof(raced.id);const rid=BigInt(raced.id),rp=await prisma.paymentProof.findUnique({where:{booking_id:rid}});await req(`/owner/payments/${rp.id}/confirm`,0,'POST',{});
+      const raceEndedAt=new Date(Math.floor(+clock/1800000)*1800000),raceStartedAt=new Date(+raceEndedAt-3600000);
+      await prisma.booking.update({where:{id:rid},data:{start_at:raceStartedAt,end_at:raceEndedAt}});
+      const results=await Promise.all([req(`/owner/bookings/${raced.id}/complete`,0,'POST',{}),req(`/owner/bookings/${raced.id}/cancel`,0,'POST',{reason:'Race'})]);
+      assert.deepEqual(results.map(item=>item.status).sort(),[200,409]);
+      const terminal=await prisma.booking.findUnique({where:{id:rid}});assert.ok(['COMPLETED','CANCELLED'].includes(terminal.status));assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:rid}}}),0);
+      assert.equal(await prisma.refund.count({where:{booking_id:rid}}),terminal.status==='CANCELLED'?1:0);
+    });
+    await cases('Owner completion rolls back status and locks when lock release fails',async()=>{
+      const b=await fresh();await proof(b.id);const bid=BigInt(b.id),p=await prisma.paymentProof.findUnique({where:{booking_id:bid}});await req(`/owner/payments/${p.id}/confirm`,0,'POST',{});
+      const rollbackEndedAt=new Date(Math.floor(+clock/1800000)*1800000),rollbackStartedAt=new Date(+rollbackEndedAt-3600000);
+      await prisma.booking.update({where:{id:bid},data:{start_at:rollbackStartedAt,end_at:rollbackEndedAt}});
+      const before=await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}});
+      const injected=new Proxy(prisma,{get(target,key){if(key==='$transaction')return(fn,opts)=>target.$transaction(tx=>fn(new Proxy(tx,{get(t,k){if(k==='courtSlotLock')return new Proxy(t[k],{get(m,p){if(p==='deleteMany')return async args=>{await m[p](args);throw Object.assign(new Error('Injected'),{code:'TEST_FAILURE'});};return m[p];}});return t[k];}})),opts);return target[key];}});
+      await assert.rejects(createOwnerPaymentService(injected,storage).completeBooking(actors[0],bid),error=>error.code==='TEST_FAILURE');
+      const unchanged=await prisma.booking.findUnique({where:{id:bid}});assert.equal(unchanged.status,'CONFIRMED');assert.equal(unchanged.completed_at,null);assert.equal(await prisma.courtSlotLock.count({where:{bookingSlot:{booking_id:bid}}}),before);
     });
     await cases('Owner confirmed cancellation validates, owns, creates one exact refund and reopens availability',async()=>{
       const b=await fresh();await proof(b.id);const bid=BigInt(b.id),p=await prisma.paymentProof.findUnique({where:{booking_id:bid}});

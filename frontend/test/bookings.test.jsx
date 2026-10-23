@@ -226,6 +226,11 @@ it.each([
 ])('%s has friendly state and no countdown/payment action',async(status,text)=>{
   transport({detail:()=>ok({...booking,status})});mount('/bookings/91');await screen.findByText(bookingLabels[status]);expect(screen.queryByRole('timer')).toBeNull();expect(screen.getByText(text)).toBeTruthy();expect(screen.queryByText(/Bước thanh toán sẽ được hỗ trợ/)).toBeNull();expect(screen.queryByRole('button',{name:/chuyển khoản|proof|Hủy/i})).toBeNull();
 });
+it('COMPLETED detail renders its authoritative completion timestamp',async()=>{
+  transport({detail:()=>ok({...booking,status:'COMPLETED',completed_at:now})});mount('/bookings/91');
+  await screen.findByText(bookingLabels.COMPLETED);expect(screen.getByText('Thời điểm hoàn tất')).toBeTruthy();
+});
+
 it('cancelled detail presents verified cancellation metadata with a neutral missing-reason fallback',async()=>{
   transport({detail:()=>ok({...booking,status:'CANCELLED',cancelled_at:now,cancelled_by:'OWNER',cancellation_reason:null})});mount('/bookings/91');
   expect(await screen.findByRole('heading',{name:'Thông tin hủy đặt sân'})).toBeTruthy();

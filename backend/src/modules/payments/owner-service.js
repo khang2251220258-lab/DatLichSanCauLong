@@ -46,7 +46,7 @@ function bookingDto(row, detail = false) {
     refund: row.refund ? { ...row.refund, id: id(row.refund.id), booking_id: id(row.refund.booking_id), amount: money(row.refund.amount) } : null,
   };
   if (detail) Object.assign(value, {
-    remaining_amount: money(row.remaining_amount), confirmed_at: row.confirmed_at,
+    remaining_amount: money(row.remaining_amount), confirmed_at: row.confirmed_at, completed_at: row.completed_at,
     confirmed_by_user_id: row.confirmed_by_user_id == null ? null : id(row.confirmed_by_user_id), rejected_at: row.rejected_at,
     rejection_reason: row.rejection_reason, cancelled_at: row.cancelled_at, cancelled_by: row.cancelled_by, cancellation_reason: row.cancellation_reason,
     slots: row.slots.map(slot => ({ start_at: slot.start_at, end_at: slot.end_at,
@@ -240,6 +240,29 @@ export function createOwnerPaymentService(db, storage) {
         if (error.code === 'P2002' && error.meta?.modelName === 'Refund') throw inconsistent();
         throw error;
       }
+    },
+    async completeBooking(actor, bookingId) {
+      const initial = await initialBooking(actor, bookingId);
+      return db.$transaction(async tx => {
+        const userIds = [...new Set([BigInt(actor.user.id), initial.customer_id])]
+          .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+        for (const userId of userIds) await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM facilities WHERE id = ${initial.court.facility.id} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM courts WHERE id = ${initial.court_id} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+        const now = await clock(tx);
+        await checkOwner(tx, actor, now);
+        const booking = await tx.booking.findFirst({ where: { id: bookingId, ...ownerWhere(actor) }, include: bookingInclude });
+        if (!booking || booking.court_id !== initial.court_id || booking.court.facility.id !== initial.court.facility.id) throw missing();
+        if (booking.status !== 'CONFIRMED') throw conflict('INVALID_BOOKING_STATE');
+        if (now < booking.end_at) throw conflict('BOOKING_NOT_ENDED');
+        const completed = await tx.booking.update({ where: { id: booking.id }, data: {
+          status: 'COMPLETED', completed_at: now, updated_at: now,
+        } });
+        await tx.courtSlotLock.deleteMany({ where: { bookingSlot: { booking_id: booking.id } } });
+        return { data: { booking: { id: id(completed.id), status: completed.status, completed_at: completed.completed_at } },
+          meta: { server_time: now.toISOString() } };
+      }, options);
     },
     async proofDetail(actor, proofId) {
       const now = await clock(db); await checkOwner(db, actor, now);

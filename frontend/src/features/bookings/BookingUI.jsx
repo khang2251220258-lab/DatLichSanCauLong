@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { Header, Footer } from '../facilities/PublicLayout';
 import { localTime, money } from '../facilities/detailRules';
-import { bookingLabels, dayLabel } from './rules';
+import { bookingLabels, dayLabel, stampLabel } from './rules';
 import '../facilities/facilities.css';
 import './bookings.css';
 
@@ -24,7 +24,7 @@ export function BookingInfo({ booking, slots, confirming = false }) {
 export function CostSummary({ amounts, estimated = false, children }) {
   return <section className="bk-panel bk-cost-panel"><h2>{estimated ? 'Chi phí đặt sân dự kiến' : 'Tổng quan chi phí'}</h2>
     <dl className="bk-costs"><div><dt>Tổng tiền{estimated ? ' dự kiến' : ''}</dt><dd>{money(amounts.total_amount)}</dd></div><div><dt>Tiền cọc 30%</dt><dd className="bk-deposit">{money(amounts.deposit_amount)}</dd></div><div><dt>Còn lại 70%</dt><dd>{money(amounts.remaining_amount)}</dd></div></dl>
-    <p className="bk-muted">Phần còn lại được thanh toán tại sân.</p>{children}
+    <p className="bk-muted">Phần còn lại được thanh toán tại sân.</p>{amounts.completed_at&&<div className="bk-created"><span>Thời điểm hoàn tất</span><strong>{stampLabel(amounts.completed_at)}</strong></div>}{children}
   </section>;
 }
 export function BookingBack({ to, children }) { return <Link className="bk-back" to={to}>← {children}</Link>; }

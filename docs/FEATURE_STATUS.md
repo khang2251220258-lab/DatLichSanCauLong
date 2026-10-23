@@ -68,6 +68,14 @@ The Home Facility section now uses an explicit `FacilityCard` Home variant with 
 
 Home still performs one `GET /facilities?page=1&page_size=4`; no per-card detail request or dependency was added. Read-only Playwright passed desktop/tablet/mobile **3/3**, with one list request, zero pre-navigation detail requests, correct Detail navigation, and no body overflow. Guest one-time plus recurring search Playwright passed **6/6**. Targeted frontend **91/91**, full sequential frontend **402/402**, lint, production build, and diff check PASS. Three generated Home showcase screenshots are review candidates, not approved references. Backend/database/schema/migrations/demo data and Booking #1119 were unchanged.
 
+## Owner Booking Completion — implemented and verified (2026-10-23)
+
+`POST /api/v1/owner/bookings/:booking_id/complete` is now implemented for the owning ACTIVE Owner. The server accepts an exact empty body with Origin/CSRF enforcement, locks User → Facility → Court → Booking, rechecks ownership/state against DB time, and permits only `CONFIRMED` bookings at or after `end_at`. It atomically records `COMPLETED`/`completed_at` and releases only that booking's CourtSlotLock rows while preserving BookingSlot, PaymentProof, and financial snapshots. `INVALID_BOOKING_STATE` and `BOOKING_NOT_ENDED` remain 409 conflicts; cross-owner records remain 404.
+
+Owner Booking Detail presents the complete action only when the last authoritative snapshot shows an ended CONFIRMED booking, uses the shared accessible confirmation modal, sends no client-managed financial/state fields, and refetches after success, 409, or uncertain results. Customer Detail presents the read-only `COMPLETED` state and its authoritative `completed_at`; no remaining-payment proof or online settlement status was introduced.
+
+Evidence: backend targeted Owner/Payment **10/10**, backend unit **115/115**, PostgreSQL Payment lifecycle **25/25** including completion ownership/CSRF/time boundary, lock release, rollback and terminal-action race, frontend targeted Owner Payment **46/46**, full frontend **411/411**, Prisma validate, audit, lint, build and fixture cleanup PASS. No schema, migration, seed or persistent demo-data change.
+
 ## Performance Improvement Phase 6C — Owner Facility List court-count N+1 removed (2026-10-22)
 
 `GET /owner/facilities` now returns an authoritative non-negative `court_count` for every Facility in the existing paginated Owner list. The service uses Prisma relation `_count.courts` in the paginated Facility query and preserves the existing Owner ownership predicate, ordering, pagination and Court semantics (ACTIVE plus INACTIVE). It adds no schema field, endpoint, migration or per-Facility backend query; Admin and Public Facility DTOs remain unchanged.

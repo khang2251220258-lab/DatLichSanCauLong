@@ -18,6 +18,9 @@ export function ownerPaymentRoutes(service, auth, config) {
   router.post('/bookings/:booking_id/cancel', ...mutation, async (req, res) => {
     res.json(await service.cancelBooking(req.auth, requestId(req.params.booking_id), cancellationReasonInput(req.body)));
   });
+  router.post('/bookings/:booking_id/complete', ...mutation, async (req, res) => {
+    emptyBody(req.body); res.json(await service.completeBooking(req.auth, requestId(req.params.booking_id)));
+  });
   router.post('/bookings/:booking_id/confirm', ...mutation, async (req, res) => {
     emptyBody(req.body); res.json(await service.confirmV2Booking(req.auth, requestId(req.params.booking_id)));
   });
