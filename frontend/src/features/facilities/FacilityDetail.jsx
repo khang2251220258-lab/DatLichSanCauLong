@@ -75,11 +75,16 @@ function SlotPicker({ data, date, facility, court, context, returnPath }) {
     {draft?.outcome === 'unknown' && <p><Link to="/bookings">Lịch đặt sân của tôi</Link> · <button onClick={()=>{setDraft(null);setIndices([]);setError('');}}>Đã kiểm tra lịch, chọn lại</button></p>}
   </>;
 }
-function Availability({ court, date, facility, context, returnPath }) {
-  const request = usePublicRead('/courts/'+encodeURIComponent(court.id)+'/availability?'+new URLSearchParams({date}), availabilityResponse, { cache:false });
+function Availability({ court, date, facility, context, returnPath, provisional }) {
+  const path='/courts/'+encodeURIComponent(court.id)+'/availability?'+new URLSearchParams({date});
+  // A provisional request may already be in flight from an interval-search
+  // hint. The Detail response has validated the Court before this component is
+  // rendered, so the result cannot be exposed for an unverified URL value.
+  const fallback = usePublicRead(provisional ? null : path, availabilityResponse, { cache:false });
+  const request = provisional || fallback;
   return <>{request.busy&&request.value&&<p role="status" className="fd-availability-status">Đang cập nhật lịch trống…</p>}{request.refreshError&&request.value&&<div className="fl-state" role="alert"><p>Không thể cập nhật lịch mới nhất. Lịch gần nhất vẫn được hiển thị để tham khảo.</p><button onClick={()=>void request.refresh()}>Thử lại</button></div>}<div aria-busy={request.loading}>{request.loading ? <p role="status" className="fd-availability-status">Đang tải lịch trống…</p> : request.error ? <Failure error={request.error} retry={request.retry} availability /> : <SlotPicker key={request.key} data={request.value.data} date={date} facility={facility} court={court} context={context} returnPath={returnPath}/>}</div>{(request.loading || request.error) && <div className="fd-booking-action"><button className="fl-primary fd-booking-cta" disabled>Tiếp tục đặt sân ›</button></div>}</>;
 }
-function DetailContent({ envelope, params }) {
+function DetailContent({ envelope, params, provisional, discardProvisional }) {
   const f = envelope.data;
   const {draft,setDraft} = useBookingDraft();
   function clearSavedSelection() {
@@ -93,10 +98,22 @@ function DetailContent({ envelope, params }) {
   const today = localDate(envelope.meta.server_time);
   const [date,setDate] = useState(saved && localDate(saved.selection.start_at) >= today ? localDate(saved.selection.start_at) : context?.date || today);
   const court = courts.find(c=>c.id===courtId);
+  function changeCourt(nextCourtId) {
+    if(nextCourtId===courtId)return;
+    discardProvisional();
+    clearSavedSelection();
+    setCourtId(nextCourtId);
+  }
+  function changeDate(nextDate) {
+    discardProvisional();
+    clearSavedSelection();
+    setDate(nextDate);
+  }
+  const acceptedProvisional=provisional?.hint.courtId===courtId&&provisional.hint.date===date&&matched.includes(courtId)?provisional.read:null;
   return <><h1>{f.name}</h1><div className="fd-summary"><span className="fl-district">⌖ {f.district}</span><span>{f.address}</span><span>{f.opening_time} – {f.closing_time}</span></div>
     {context&&<p className="fd-search-context" role="status">Đang kiểm tra lại lịch cho {context.date}, {context.start_time}–{context.end_time}. Các sân được đánh dấu đã phù hợp tại thời điểm tìm kiếm.</p>}<Gallery images={f.gallery} name={f.name}/>
-    <div className="fd-columns"><div><section className="fd-panel"><h2>Chọn sân</h2><p>Chọn sân con để xem lịch tương ứng.</p><div className="fd-courts">{courts.map(c=><button key={c.id} aria-pressed={courtId===c.id} onClick={()=>{if(c.id!==courtId)clearSavedSelection();setCourtId(c.id);}}>{c.name}{matched.includes(c.id)?<small>Phù hợp theo tìm kiếm</small>:null}{courtId===c.id?' ✓':' ›'}</button>)}</div>{!courts.length && <p role="status">Chưa có sân đang hoạt động.</p>}</section>
-      {court && <section className="fd-panel fd-availability-panel"><div className="fd-calendar-heading"><div className="fd-calendar-title"><span className="fd-section-kicker">Chọn thời gian</span><h2>Lịch trống</h2><p><span>Sân đang chọn</span><strong>{court.name}</strong></p></div><label><span>Chọn ngày</span><input type="date" value={date} min={today} onChange={e=>{clearSavedSelection();setDate(e.target.value);}}/></label></div>{date ? <Availability key={courtId+date} court={court} date={date} facility={f} context={context} returnPath={returnPath}/> : <p role="alert">Vui lòng chọn ngày.</p>}</section>}
+    <div className="fd-columns"><div><section className="fd-panel"><h2>Chọn sân</h2><p>Chọn sân con để xem lịch tương ứng.</p><div className="fd-courts">{courts.map(c=><button key={c.id} aria-pressed={courtId===c.id} onClick={()=>changeCourt(c.id)}>{c.name}{matched.includes(c.id)?<small>Phù hợp theo tìm kiếm</small>:null}{courtId===c.id?' ✓':' ›'}</button>)}</div>{!courts.length && <p role="status">Chưa có sân đang hoạt động.</p>}</section>
+      {court && <section className="fd-panel fd-availability-panel"><div className="fd-calendar-heading"><div className="fd-calendar-title"><span className="fd-section-kicker">Chọn thời gian</span><h2>Lịch trống</h2><p><span>Sân đang chọn</span><strong>{court.name}</strong></p></div><label><span>Chọn ngày</span><input type="date" value={date} min={today} onChange={e=>changeDate(e.target.value)}/></label></div>{date ? <Availability key={courtId+date} court={court} date={date} facility={f} context={context} returnPath={returnPath} provisional={acceptedProvisional}/> : <p role="alert">Vui lòng chọn ngày.</p>}</section>}
     </div><aside><section className="fd-panel fd-side-panel"><h2>Tiện ích</h2>{f.amenities.length ? <ul className="fd-amenities">{f.amenities.map(a=><li key={a.id}>{a.name}</li>)}</ul> : <p>Chưa có tiện ích được công bố.</p>}</section>
       <section className="fd-panel fd-side-panel"><h2>Bảng giá</h2>{f.price_rules.length ? <ul className="fd-prices">{f.price_rules.map(r=><li key={r.id}><span>{r.start_time} – {r.end_time}</span><strong>{money(r.hourly_rate)}/giờ</strong></li>)}</ul> : <p>Chưa có bảng giá.</p>}</section>
       <section className="fd-panel fd-side-panel"><h2>Chính sách hủy</h2><p className="fd-policy">{f.cancellation_policy ? `Với booking đã xác nhận, khách chỉ được hủy trước mốc ${f.cancellation_policy.cutoff_hours} giờ so với giờ chơi (không gồm đúng mốc), theo chính sách được lưu khi đặt. Các trạng thái khác áp dụng quy định riêng.` : 'Chưa có chính sách hủy được công bố; không có nghĩa là được hủy tự do.'}</p></section>
@@ -104,6 +121,17 @@ function DetailContent({ envelope, params }) {
 }
 export function FacilityDetail() {
   const {facility_id} = useParams(), [params]=useSearchParams();
-  const request = usePublicRead('/facilities/'+encodeURIComponent(facility_id), facilityDetailResponse);
-  return <div className="fl-page"><Header/><main className="fl-main fd-main"><Link className="fd-back" to={listReturnPath(params)}>← Danh sách sân</Link>{request.busy&&request.value&&<p role="status">Đang cập nhật thông tin cơ sở…</p>}{request.refreshError&&request.value&&<div className="fl-state" role="alert"><p>Không thể cập nhật dữ liệu mới nhất. Thông tin gần nhất vẫn được giữ lại.</p><button onClick={()=>void request.refresh()}>Thử lại</button></div>}{request.loading ? <p role="status">Đang tải cơ sở…</p> : request.error ? <Failure error={request.error} retry={request.retry}/> : <DetailContent key={request.key+params.toString()} envelope={request.value} params={params}/>}</main><Footer/></div>;
+  return <FacilityDetailScreen key={facility_id+'?'+params.toString()} facilityId={facility_id} params={params}/>;
+}
+function FacilityDetailScreen({ facilityId, params }) {
+  const request = usePublicRead('/facilities/'+encodeURIComponent(facilityId), facilityDetailResponse);
+  const context=searchContext(params), rawHint=params.get('matching_courts')?.split(',').find(id=>/^[1-9]\d*$/.test(id));
+  const hint=context&&rawHint?{courtId:rawHint,date:context.date}:null;
+  const detail= request.value?.data;
+  const hintStillValid=Boolean(hint)&&!(request.error&&!detail)&&(!detail||detail.courts.some(court=>court.id===hint.courtId));
+  const [provisionalEnabled,setProvisionalEnabled] = useState(true);
+  const provisionalPath=hint&&hintStillValid&&provisionalEnabled?'/courts/'+encodeURIComponent(hint.courtId)+'/availability?'+new URLSearchParams({date:hint.date}):null;
+  const provisionalRead=usePublicRead(provisionalPath, availabilityResponse, {cache:false});
+  const discardProvisional=()=>setProvisionalEnabled(false);
+  return <div className="fl-page"><Header/><main className="fl-main fd-main"><Link className="fd-back" to={listReturnPath(params)}>← Danh sách sân</Link>{request.busy&&request.value&&<p role="status">Đang cập nhật thông tin cơ sở…</p>}{request.refreshError&&request.value&&<div className="fl-state" role="alert"><p>Không thể cập nhật dữ liệu mới nhất. Thông tin gần nhất vẫn được giữ lại.</p><button onClick={()=>void request.refresh()}>Thử lại</button></div>}{request.loading ? <p role="status">Đang tải cơ sở…</p> : request.error ? <Failure error={request.error} retry={request.retry}/> : <DetailContent key={request.key+params.toString()} envelope={request.value} params={params} provisional={hintStillValid&&provisionalEnabled?{hint,read:provisionalRead}:null} discardProvisional={discardProvisional}/>}</main><Footer/></div>;
 }

@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useNavigate } from 'react-router';
 import { AppRoutes } from '../src/routes/AppRoutes';
 import { AuthProvider } from '../src/features/auth/AuthContext';
 import { labels, localDate, money, selectionFrom } from '../src/features/facilities/detailRules';
@@ -14,11 +14,13 @@ function mock({detail=facility,availability,sessionError=false}={}) {
   vi.stubGlobal('fetch',vi.fn((url,options)=>{
     expect(options.method).toBe('GET');expect(options.credentials).toBe('include');const u=new URL(url);calls.push(u);
     if(u.pathname.endsWith('/auth/session'))return Promise.resolve(fail(sessionError?503:401,'SESSION_EXPIRED'));
-    if(u.pathname.includes('/availability'))return Promise.resolve(availability?availability(u):ok({court_id:u.pathname.split('/')[4],slots,date:u.searchParams.get('date'),timezone:'Asia/Ho_Chi_Minh',slot_minutes:30}));
-    return Promise.resolve(detail instanceof Response?detail:ok(detail));
+    if(u.pathname.includes('/availability'))return Promise.resolve(availability?availability(u,options):ok({court_id:u.pathname.split('/')[4],slots,date:u.searchParams.get('date'),timezone:'Asia/Ho_Chi_Minh',slot_minutes:30}));
+    const result=typeof detail==='function'?detail(u,options):detail;
+    return Promise.resolve(result).then(value=>value instanceof Response?value:ok(value));
   }));return calls;
 }
-function mount(path='/facilities/1'){return render(<MemoryRouter initialEntries={[path]}><AuthProvider><AppRoutes/></AuthProvider></MemoryRouter>);}
+function NavigationProbe(){const navigate=useNavigate();return <button hidden data-testid="navigate-detail" onClick={()=>navigate('/facilities/2?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10')}>Navigate</button>;}
+function mount(path='/facilities/1'){return render(<MemoryRouter initialEntries={[path]}><AuthProvider><AppRoutes/><NavigationProbe/></AuthProvider></MemoryRouter>);}
 const selected=()=>screen.queryAllByRole('button',{pressed:true}).filter(b=>b.classList.contains('fd-slot'));
 it('reads DTO, sorts default Court by numeric ID and selects local date from server time',async()=>{
   const calls=mock();mount();await screen.findByRole('button',{name:/09:00–09:30/});
@@ -98,4 +100,83 @@ it('restores search context, selects a matching court and requested available in
   expect(screen.getAllByText('Phù hợp theo tìm kiếm')).toHaveLength(2);
   expect(selected()).toHaveLength(2);
   expect(screen.getByRole('link',{name:/Danh sách sân/}).getAttribute('href')).toContain('date=2026-10-05');
+});
+it('overlaps hinted Availability with Detail but keeps slots hidden until the Court is validated',async()=>{
+  let resolveDetail,resolveAvailability;
+  const detail=new Promise(resolve=>{resolveDetail=resolve;}), availability=new Promise(resolve=>{resolveAvailability=resolve;});
+  const calls=mock({detail,availability:()=>availability});
+  mount('/facilities/1?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10');
+  await waitFor(()=>{
+    expect(calls.some(url=>url.pathname==='/api/v1/facilities/1')).toBe(true);
+    expect(calls.some(url=>url.pathname==='/api/v1/courts/10/availability')).toBe(true);
+  });
+  await act(async()=>resolveAvailability(ok({court_id:'10',slots,date:'2026-10-05',timezone:'Asia/Ho_Chi_Minh',slot_minutes:30})));
+  expect(screen.queryByRole('button',{name:/09:00–09:30/})).toBeNull();
+  await act(async()=>resolveDetail(facility));
+  await screen.findByRole('button',{name:/09:00–09:30/});
+  expect(calls.filter(url=>url.pathname==='/api/v1/courts/10/availability')).toHaveLength(1);
+});
+it('never exposes a provisional Availability result when Facility Detail fails',async()=>{
+  let resolveDetail,resolveAvailability;
+  const detail=new Promise(resolve=>{resolveDetail=resolve;}), availability=new Promise(resolve=>{resolveAvailability=resolve;});
+  const calls=mock({detail,availability:()=>availability});
+  mount('/facilities/1?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10');
+  await waitFor(()=>expect(calls.some(url=>url.pathname==='/api/v1/courts/10/availability')).toBe(true));
+  await act(async()=>resolveAvailability(ok({court_id:'10',slots,date:'2026-10-05',timezone:'Asia/Ho_Chi_Minh',slot_minutes:30})));
+  await act(async()=>resolveDetail(fail(404,'RESOURCE_NOT_FOUND')));
+  await screen.findByRole('alert');
+  expect(screen.queryByRole('button',{name:/09:00â€“09:30/})).toBeNull();
+});
+it('discards a cross-Facility hint, aborts its provisional request and falls back to the validated Court',async()=>{
+  let aborted=false;
+  const calls=mock();
+  // Replace the default Availability response with an abort-aware provisional read.
+  globalThis.fetch.mockImplementation((url,options)=>{
+    expect(options.method).toBe('GET');const u=new URL(url);calls.push(u);
+    if(u.pathname.endsWith('/auth/session'))return Promise.resolve(fail(401,'SESSION_EXPIRED'));
+    if(u.pathname==='/api/v1/courts/999/availability')return new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted=true;reject(new DOMException('Aborted','AbortError'));},{once:true}));
+    if(u.pathname.includes('/availability'))return Promise.resolve(ok({court_id:'2',slots,date:u.searchParams.get('date'),timezone:'Asia/Ho_Chi_Minh',slot_minutes:30}));
+    return Promise.resolve(ok(facility));
+  });
+  mount('/facilities/1?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=999');
+  await screen.findByRole('button',{name:/09:00–09:30/});
+  await waitFor(()=>expect(aborted).toBe(true));
+  expect(calls.some(url=>url.pathname==='/api/v1/courts/2/availability')).toBe(true);
+  expect(screen.getByText('Sân 2')).toBeTruthy();
+});
+it('aborts an in-flight provisional Availability request when the Court changes',async()=>{
+  let aborted=false;
+  mock({availability:(u,options)=>u.pathname==='/api/v1/courts/10/availability' ? new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted=true;reject(new DOMException('Aborted','AbortError'));},{once:true})) : ok({court_id:'2',slots:[],date:u.searchParams.get('date'),timezone:'Asia/Ho_Chi_Minh',slot_minutes:30})});
+  mount('/facilities/1?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10');
+  await screen.findByText('Đang tải lịch trống…');
+  fireEvent.click(screen.getByRole('button',{name:'Sân 2 ›'}));
+  await waitFor(()=>expect(aborted).toBe(true));
+  await screen.findByText('Không có khung giờ trong ngày này.');
+});
+it('aborts an in-flight provisional Availability request when the date changes',async()=>{
+  let aborted=false, first=true;
+  mock({availability:(u,options)=>first ? (first=false,new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted=true;reject(new DOMException('Aborted','AbortError'));},{once:true}))) : ok({court_id:'10',slots:[],date:u.searchParams.get('date'),timezone:'Asia/Ho_Chi_Minh',slot_minutes:30})});
+  mount('/facilities/1?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10');
+  await screen.findByText('Đang tải lịch trống…');
+  fireEvent.change(screen.getByLabelText('Chọn ngày'),{target:{value:'2026-10-06'}});
+  await waitFor(()=>expect(aborted).toBe(true));
+  await screen.findByText('Không có khung giờ trong ngày này.');
+});
+it('aborts in-flight hint reads when the route changes',async()=>{
+  let aborted=false;
+  mock({availability:(_u,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted=true;reject(new DOMException('Aborted','AbortError'));},{once:true}))});
+  mount('/facilities/1?date=2026-10-05&start_time=09%3A00&end_time=10%3A00&matching_courts=10');
+  await screen.findByText('Đang tải lịch trống…');
+  fireEvent.click(screen.getByTestId('navigate-detail'));
+  await waitFor(()=>expect(aborted).toBe(true));
+});
+it('direct Facility navigation still waits for Detail before requesting Availability',async()=>{
+  let resolveDetail;
+  const detail=new Promise(resolve=>{resolveDetail=resolve;});
+  const calls=mock({detail});mount('/facilities/1');
+  await waitFor(()=>expect(calls.some(url=>url.pathname==='/api/v1/facilities/1')).toBe(true));
+  expect(calls.some(url=>url.pathname.includes('/availability'))).toBe(false);
+  await act(async()=>resolveDetail(facility));
+  await screen.findByRole('button',{name:/09:00–09:30/});
+  expect(calls.some(url=>url.pathname==='/api/v1/courts/2/availability')).toBe(true);
 });
